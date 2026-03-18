@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "Client": {
+      "title": "Client",
+      "description": "Represents a motorcycle owner and their vehicle's maintenance status.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Client's full name" },
+        "bikeModel": { "type": "string", "description": "Motorcycle model" },
+        "oilType": { "type": "string", "description": "Type of oil used" },
+        "contact": { "type": "string", "description": "WhatsApp contact number" },
+        "lastMaintenanceDate": { "type": "string", "format": "date-time", "description": "Date of the last service" },
+        "nextMaintenanceDate": { "type": "string", "format": "date-time", "description": "Date of the next scheduled service" },
+        "recurrenceDays": { "type": "integer", "description": "Interval in days between services" },
+        "status": { "type": "string", "enum": ["OK", "WARNING", "OVERDUE"], "description": "Current maintenance status" },
+        "userId": { "type": "string", "description": "Owner of this record" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "bikeModel", "contact", "lastMaintenanceDate", "nextMaintenanceDate", "recurrenceDays", "userId"]
+    },
+    "MaintenanceRecord": {
+      "title": "Maintenance Record",
+      "description": "Historical record of a specific maintenance service.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string", "description": "Reference to the client" },
+        "clientName": { "type": "string" },
+        "bikeModel": { "type": "string" },
+        "date": { "type": "string", "format": "date-time", "description": "Date service was performed" },
+        "oilType": { "type": "string" },
+        "notes": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["clientId", "date", "userId"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "User-specific application settings.",
+      "type": "object",
+      "properties": {
+        "whatsappTemplate": { "type": "string", "description": "Template for WhatsApp alerts" },
+        "userId": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "Warranty": {
+      "title": "Warranty",
+      "description": "Represents a service warranty certificate.",
+      "type": "object",
+      "properties": {
+        "clientName": { "type": "string" },
+        "serviceType": { "type": "string" },
+        "serviceDescription": { "type": "string" },
+        "serviceValue": { "type": "number" },
+        "serviceDate": { "type": "string", "format": "date-time" },
+        "durationMonths": { "type": "integer" },
+        "expiryDate": { "type": "string", "format": "date-time" },
+        "clientPhone": { "type": "string" },
+        "warrantyNumber": { "type": "integer" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clientName", "serviceType", "serviceDate", "durationMonths", "warrantyNumber", "userId"]
+    }
+  },
+  "firestore": {
+    "/clients/{clientId}": {
+      "schema": "Client",
+      "description": "Collection of clients and their bike status"
+    },
+    "/maintenances/{maintenanceId}": {
+      "schema": "MaintenanceRecord",
+      "description": "Historical log of all maintenances"
+    },
+    "/settings/{userId}": {
+      "schema": "Settings",
+      "description": "User preferences and templates"
+    },
+    "/warranties/{warrantyId}": {
+      "schema": "Warranty",
+      "description": "Collection of warranty certificates"
+    }
+  }
+}

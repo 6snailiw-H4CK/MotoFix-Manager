@@ -1,0 +1,169 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: clients
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required, 1-100 chars)
+    //   - bikeModel: string (required, 1-100 chars)
+    //   - oilType: string (optional, 1-100 chars)
+    //   - contact: string (required, 1-20 chars)
+    //   - lastMaintenanceDate: string (required, ISO 8601)
+    //   - nextMaintenanceDate: string (required, ISO 8601)
+    //   - recurrenceDays: number (required, positive)
+    //   - status: string (required, enum: OK, WARNING, OVERDUE)
+    //   - userId: string (required, matches auth.uid)
+    //   - createdAt: timestamp (optional)
+    //
+    // Collection: maintenances
+    // Document ID: auto-generated
+    // Fields:
+    //   - clientId: string (required)
+    //   - clientName: string (optional)
+    //   - bikeModel: string (optional)
+    //   - date: string (required, ISO 8601)
+    //   - oilType: string (optional)
+    //   - notes: string (optional, max 500 chars)
+    //   - userId: string (required, matches auth.uid)
+    //
+    // Collection: settings
+    // Document ID: userId
+    // Fields:
+    //   - whatsappTemplate: string (optional, max 1000 chars)
+    //   - userId: string (required, matches auth.uid)
+    //
+    // Collection: warranties
+    // Document ID: auto-generated
+    // Fields:
+    //   - clientName: string (required)
+    //   - serviceType: string (required)
+    //   - serviceDescription: string (optional)
+    //   - serviceValue: number (optional)
+    //   - serviceDate: string (required, ISO 8601)
+    //   - durationMonths: number (required)
+    //   - expiryDate: string (required, ISO 8601)
+    //   - clientPhone: string (optional)
+    //   - warrantyNumber: number (required)
+    //   - userId: string (required, matches auth.uid)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function uidUnchanged() {
+      return !('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "6snailiw@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidClient(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.bikeModel is string && data.bikeModel.size() > 0 && data.bikeModel.size() <= 100 &&
+             data.contact is string && data.contact.size() > 0 && data.contact.size() <= 20 &&
+             isValidDateString(data.lastMaintenanceDate) &&
+             isValidDateString(data.nextMaintenanceDate) &&
+             data.recurrenceDays is number && data.recurrenceDays > 0 &&
+             data.status in ['OK', 'WARNING', 'OVERDUE'] &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidMaintenance(data) {
+      return data.clientId is string &&
+             isValidDateString(data.date) &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidSettings(data) {
+      return data.userId == request.auth.uid &&
+             (!('whatsappTemplate' in data) || (data.whatsappTemplate is string && data.whatsappTemplate.size() <= 1000));
+    }
+
+    function isValidWarranty(data) {
+      return data.clientName is string && data.clientName.size() > 0 &&
+             data.serviceType is string && data.serviceType.size() > 0 &&
+             isValidDateString(data.serviceDate) &&
+             isValidDateString(data.expiryDate) &&
+             data.durationMonths is number && data.durationMonths > 0 &&
+             data.warrantyNumber is number &&
+             data.userId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    match /clients/{clientId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidClient(request.resource.data) && uidUnchanged();
+      allow update: if isDocOwner() && isValidClient(request.resource.data) && uidNotModified();
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /maintenances/{maintenanceId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidMaintenance(request.resource.data) && uidUnchanged();
+      allow update: if isDocOwner() && isValidMaintenance(request.resource.data) && uidNotModified();
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /settings/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidSettings(request.resource.data);
+      allow update: if isOwner(userId) && isValidSettings(request.resource.data);
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    match /warranties/{warrantyId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidWarranty(request.resource.data) && uidUnchanged();
+      allow update: if isDocOwner() && isValidWarranty(request.resource.data) && uidNotModified();
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
