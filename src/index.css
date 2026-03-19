@@ -3,8 +3,8 @@
 
 @theme {
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --color-primary: #f2780d;
-  --color-background-dark: #221810;
+  --color-primary: #ef4444;
+  --color-background-dark: #000000;
 }
 
 @layer base {

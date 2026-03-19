@@ -54,7 +54,11 @@ import {
   ShieldCheck,
   Download,
   FileText,
-  Droplets
+  Droplets,
+  Shield,
+  Lock,
+  UserCheck,
+  UserX
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -68,7 +72,7 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
-import { Client, MaintenanceRecord, MaintenanceStatus, Settings, Warranty } from './types';
+import { Client, MaintenanceRecord, MaintenanceStatus, Settings, Warranty, UserProfile } from './types';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -148,13 +152,13 @@ const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
       <div className="min-h-screen flex items-center justify-center bg-background-dark p-4">
         <div className="bg-slate-800 p-8 rounded-2xl border border-red-500/30 max-w-md w-full text-center">
           <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-white mb-2">Something went wrong</h1>
-          <p className="text-slate-400 mb-6">{error || "An unexpected error occurred."}</p>
+          <h1 className="text-2xl font-bold text-white mb-2">Algo deu errado</h1>
+          <p className="text-slate-400 mb-6">{error || "Ocorreu um erro inesperado."}</p>
           <button 
             onClick={() => window.location.reload()}
             className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90 transition-all"
           >
-            Reload Application
+            Recarregar Aplicativo
           </button>
         </div>
       </div>
@@ -170,7 +174,7 @@ const LoadingScreen = () => (
       <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
       <Bike className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-primary" />
     </div>
-    <p className="mt-4 text-slate-400 font-medium animate-pulse">Loading MotoFix...</p>
+    <p className="mt-4 text-slate-400 font-medium animate-pulse">Carregando MotoFix...</p>
   </div>
 );
 
@@ -194,8 +198,8 @@ const AuthScreen = () => (
         <div className="bg-primary/20 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-primary/20">
           <Bike className="w-12 h-12 text-primary" />
         </div>
-        <h1 className="text-4xl font-bold text-white tracking-tight">MotoFix Manager</h1>
-        <p className="text-slate-400 text-lg">Gerencie a manutenção de suas motos com facilidade e alertas automáticos.</p>
+        <h1 className="text-4xl font-bold text-white tracking-tight">MotoFix Recorrentes</h1>
+        <p className="text-slate-400 text-lg">Gerencie a troca de óleo de suas motos com facilidade e alertas automáticos.</p>
       </div>
 
       <button 
@@ -226,8 +230,10 @@ const AuthScreen = () => (
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'dashboard' | 'clients' | 'history' | 'settings' | 'new-client' | 'warranties' | 'new-warranty'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'clients' | 'history' | 'settings' | 'new-client' | 'warranties' | 'new-warranty' | 'admin'>('dashboard');
   const [clients, setClients] = useState<Client[]>([]);
   const [maintenances, setMaintenances] = useState<MaintenanceRecord[]>([]);
   const [warranties, setWarranties] = useState<Warranty[]>([]);
@@ -237,6 +243,8 @@ export default function App() {
   const [editingWarranty, setEditingWarranty] = useState<Warranty | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'client' | 'maintenance' | 'warranty' } | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const ADMIN_EMAIL = '6snailiw@gmail.com';
 
   // Chart Data Calculation
   const chartData = useMemo(() => {
@@ -265,15 +273,52 @@ export default function App() {
 
   // Auth listener
   useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
+    return onAuthStateChanged(auth, async (user) => {
       setUser(user);
+      if (user) {
+        // Fetch or create user profile
+        const userDoc = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userDoc);
+        
+        if (userSnap.exists()) {
+          setUserProfile(userSnap.data() as UserProfile);
+        } else {
+          const newProfile: UserProfile = {
+            uid: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || 'Usuário',
+            role: user.email === ADMIN_EMAIL ? 'admin' : 'user',
+            isActive: user.email === ADMIN_EMAIL, // Admin is active by default, others need approval
+            createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+          };
+          await setDoc(userDoc, newProfile);
+          setUserProfile(newProfile);
+        }
+      } else {
+        setUserProfile(null);
+      }
       setLoading(false);
     });
   }, []);
 
+  // Subscription expiry check
+  useEffect(() => {
+    if (!userProfile || userProfile.role === 'admin' || !userProfile.subscriptionExpiresAt || !userProfile.isActive) return;
+
+    const expiryDate = parseISO(userProfile.subscriptionExpiresAt);
+    const today = new Date();
+
+    // If today is after expiry date, block the user
+    if (isBefore(expiryDate, today)) {
+      updateDoc(doc(db, 'users', userProfile.uid), {
+        isActive: false
+      }).catch(e => console.error("Error auto-blocking expired user", e));
+    }
+  }, [userProfile]);
+
   // Data listeners
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userProfile?.isActive) return;
 
     const clientsQuery = query(collection(db, 'clients'), where('userId', '==', user.uid));
     const unsubscribeClients = onSnapshot(clientsQuery, (snapshot) => {
@@ -301,15 +346,21 @@ export default function App() {
           userId: user.uid,
           whatsappTemplate: data.whatsappTemplate || "Olá {client}, sua {bike} está agendada para manutenção em {date}. Nos vemos lá!",
           oilTypes: data.oilTypes || ['10W30', '10W40', '20W50', 'Motul 3000', 'Motul 5000', 'Yamalube'],
-          warrantyCategories: data.warrantyCategories || ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral']
+          warrantyCategories: data.warrantyCategories || ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral'],
+          businessName: data.businessName || '',
+          businessPhone: data.businessPhone || '',
+          businessInstagram: data.businessInstagram || '',
+          businessAddress: data.businessAddress || '',
+          isProfileComplete: data.isProfileComplete || false
         };
         setSettings(updatedSettings);
         
         // If fields were missing, update the doc
-        if (!data.oilTypes || !data.warrantyCategories) {
+        if (!data.oilTypes || !data.warrantyCategories || data.isProfileComplete === undefined) {
           updateDoc(settingsDoc, {
             oilTypes: updatedSettings.oilTypes,
-            warrantyCategories: updatedSettings.warrantyCategories
+            warrantyCategories: updatedSettings.warrantyCategories,
+            isProfileComplete: updatedSettings.isProfileComplete
           }).catch(e => console.error("Error updating settings with defaults", e));
         }
       } else {
@@ -318,19 +369,35 @@ export default function App() {
           userId: user.uid,
           whatsappTemplate: "Olá {client}, sua {bike} está agendada para manutenção em {date}. Nos vemos lá!",
           oilTypes: ['10W30', '10W40', '20W50', 'Motul 3000', 'Motul 5000', 'Yamalube'],
-          warrantyCategories: ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral']
+          warrantyCategories: ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral'],
+          businessName: '',
+          businessPhone: '',
+          businessInstagram: '',
+          businessAddress: '',
+          isProfileComplete: false
         };
         setDoc(settingsDoc, initialSettings).catch(error => handleFirestoreError(error, OperationType.CREATE, 'settings'));
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'settings'));
+
+    // Admin listener
+    let unsubscribeUsers = () => {};
+    if (userProfile.role === 'admin') {
+      const usersQuery = collection(db, 'users');
+      unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+        const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
+        setAllUsers(usersData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      });
+    }
 
     return () => {
       unsubscribeClients();
       unsubscribeMaintenances();
       unsubscribeWarranties();
       unsubscribeSettings();
+      unsubscribeUsers();
     };
-  }, [user]);
+  }, [user, userProfile]);
 
   // Status calculation logic
   const getStatus = (nextDateStr: string): MaintenanceStatus => {
@@ -469,6 +536,8 @@ export default function App() {
   };
 
   const generateWarrantyPDF = async (warranty: Warranty) => {
+    if (!settings) return;
+
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -481,24 +550,27 @@ export default function App() {
     // Header
     doc.setFontSize(24);
     doc.setFont('helvetica', 'bold');
-    doc.text('BOX MOTORS', margin, 20);
+    doc.text(settings.businessName || 'MOTOFIX', margin, 20);
     
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text('Serviços Especializados em Manutenção', margin, 26);
-    doc.text('WhatsApp: (69) 99314-4190 | Instagram: @box_motors', margin, 30);
+    doc.text(`WhatsApp: ${settings.businessPhone || 'N/A'} | Instagram: ${settings.businessInstagram || 'N/A'}`, margin, 30);
+    if (settings.businessAddress) {
+      doc.text(settings.businessAddress, margin, 34);
+    }
     
     doc.setLineWidth(0.5);
-    doc.line(margin, 35, pageWidth - margin, 35);
+    doc.line(margin, 37, pageWidth - margin, 37);
 
     // Title
     doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
-    doc.text('CERTIFICADO DE GARANTIA', pageWidth / 2, 45, { align: 'center' });
+    doc.text('CERTIFICADO DE GARANTIA', pageWidth / 2, 47, { align: 'center' });
 
     // Main Box
-    const boxY = 55;
-    const boxHeight = 70;
+    const boxY = 57;
+    const boxHeight = 85; // Increased height for long descriptions
     doc.setDrawColor(0);
     doc.setLineWidth(0.3);
     doc.roundedRect(margin, boxY, pageWidth - (margin * 2), boxHeight, 5, 5);
@@ -513,7 +585,18 @@ export default function App() {
     doc.text(`Cliente: ${warranty.clientName}`, margin + 5, currentY); currentY += lineSpacing;
     doc.text(`Telefone: ${warranty.clientPhone || 'N/A'}`, margin + 5, currentY); currentY += lineSpacing;
     doc.text(`Serviço: ${warranty.serviceType}`, margin + 5, currentY); currentY += lineSpacing;
-    doc.text(`Descrição: ${warranty.serviceDescription || 'N/A'}`, margin + 5, currentY); currentY += lineSpacing;
+    
+    // Split description to avoid cutting off
+    const splitDescription = doc.splitTextToSize(`Descrição: ${warranty.serviceDescription || 'N/A'}`, pageWidth - (margin * 2) - 10);
+    doc.text(splitDescription, margin + 5, currentY); 
+    currentY += (splitDescription.length * lineSpacing);
+
+    // Ensure we don't overlap if description is very long
+    if (currentY > boxY + boxHeight - 20) {
+      // If description is too long, we might need to adjust or add a page, 
+      // but for now let's just ensure basic fields are printed
+    }
+
     doc.text(`Valor: R$ ${warranty.serviceValue?.toFixed(2) || '0.00'}`, margin + 5, currentY); currentY += lineSpacing;
     doc.text(`Data do Serviço: ${format(parseISO(warranty.serviceDate), 'yyyy-MM-dd')}`, margin + 5, currentY); currentY += lineSpacing;
     doc.text(`Duração: ${warranty.durationMonths} mês(es)`, margin + 5, currentY); currentY += lineSpacing;
@@ -522,13 +605,13 @@ export default function App() {
     // Terms
     const termsY = boxY + boxHeight + 10;
     doc.setFont('helvetica', 'bold');
-    doc.text('Termos da garantia', pageWidth - margin - 50, termsY);
+    doc.text('Termos da garantia', pageWidth - margin - 70, termsY);
     
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     const terms = [
       '1) A garantia cobre exclusivamente o serviço descrito neste certificado.',
-      '2) Não cobre mau uso, quedas, adaptações, violação de lacres, ou peças não fornecidas/instaladas pela Box Motors.',
+      `2) Não cobre mau uso, quedas, adaptações, violação de lacres, ou peças não fornecidas/instaladas pela ${settings.businessName || 'empresa'}.`,
       '3) É obrigatório apresentar este certificado (impresso ou digital) para acionamento.',
       '4) O prazo conta a partir da data do serviço, até a data de vencimento informada.'
     ];
@@ -536,7 +619,7 @@ export default function App() {
     let termY = termsY + 6;
     terms.forEach(term => {
       const splitTerm = doc.splitTextToSize(term, 70);
-      doc.text(splitTerm, pageWidth - margin - 50, termY);
+      doc.text(splitTerm, pageWidth - margin - 70, termY);
       termY += (splitTerm.length * 4) + 1;
     });
 
@@ -546,7 +629,7 @@ export default function App() {
     doc.text('Assinatura do Cliente', margin + 40, sigY + 5, { align: 'center' });
 
     doc.line(pageWidth - margin - 80, sigY, pageWidth - margin, sigY);
-    doc.text('Assinatura Box Motors', pageWidth - margin - 40, sigY + 5, { align: 'center' });
+    doc.text(`Assinatura ${settings.businessName || 'MotoFix'}`, pageWidth - margin - 40, sigY + 5, { align: 'center' });
 
     // Footer
     doc.setFontSize(7);
@@ -562,6 +645,62 @@ export default function App() {
       setDeleteConfirm(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'clients');
+    }
+  };
+
+  const toggleUserStatus = async (targetUser: UserProfile) => {
+    if (userProfile?.role !== 'admin') return;
+    try {
+      // If we are activating a user, we might want to set a default subscription if none exists
+      const updates: any = { isActive: !targetUser.isActive };
+      
+      // If activating and no expiry set, set to 30 days from now by default
+      if (!targetUser.isActive && !targetUser.subscriptionExpiresAt) {
+        updates.subscriptionExpiresAt = format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'");
+      }
+
+      await updateDoc(doc(db, 'users', targetUser.uid), updates);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'users');
+    }
+  };
+
+  const updateSubscription = async (uid: string, days: number) => {
+    if (userProfile?.role !== 'admin') return;
+    try {
+      const targetUser = allUsers.find(u => u.uid === uid);
+      if (!targetUser) return;
+      
+      const currentExpiry = targetUser.subscriptionExpiresAt ? parseISO(targetUser.subscriptionExpiresAt) : new Date();
+      
+      // If adding days and current is expired, start from today
+      // If removing days, always subtract from current expiry
+      let baseDate = currentExpiry;
+      if (days > 0 && isBefore(currentExpiry, new Date())) {
+        baseDate = new Date();
+      }
+      
+      const newExpiry = format(addDays(baseDate, days), "yyyy-MM-dd'T'HH:mm:ss'Z'");
+      
+      await updateDoc(doc(db, 'users', uid), {
+        subscriptionExpiresAt: newExpiry,
+        isActive: isAfter(parseISO(newExpiry), new Date())
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'users');
+    }
+  };
+
+  const setSubscriptionDate = async (uid: string, dateStr: string) => {
+    if (userProfile?.role !== 'admin') return;
+    try {
+      const newExpiry = `${dateStr}T23:59:59Z`;
+      await updateDoc(doc(db, 'users', uid), {
+        subscriptionExpiresAt: newExpiry,
+        isActive: isAfter(parseISO(newExpiry), new Date())
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'users');
     }
   };
 
@@ -591,6 +730,51 @@ export default function App() {
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthScreen />;
 
+  // Blocked Screen
+  if (userProfile && !userProfile.isActive) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background-dark p-4">
+        <div className="bg-slate-800 p-8 rounded-3xl border border-primary/20 max-w-md w-full text-center space-y-6">
+          <div className="bg-primary/20 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-10 h-10 text-primary" />
+          </div>
+          <h1 className="text-2xl font-bold text-white">Acesso Restrito</h1>
+          <p className="text-slate-400">Sua conta está aguardando ativação pelo administrador. Entre em contato para liberar seu acesso:</p>
+          <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 text-left space-y-3">
+            <a 
+              href="https://wa.me/556999944024" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-sm flex items-center gap-2 text-slate-300 hover:text-primary transition-colors"
+            >
+              <MessageSquare className="w-4 h-4 text-primary" />
+              <span className="font-bold">WhatsApp:</span> +55 69 99944024
+            </a>
+            <a 
+              href="https://instagram.com/motofix_recorrentes" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-sm flex items-center gap-2 text-slate-300 hover:text-primary transition-colors"
+            >
+              <SettingsIcon className="w-4 h-4 text-primary" />
+              <span className="font-bold">Instagram:</span> @motofix_recorrentes
+            </a>
+          </div>
+          <div className="pt-4">
+            <p className="text-xs text-slate-500 uppercase font-bold tracking-widest mb-2">Seu ID de Usuário:</p>
+            <code className="bg-slate-900 px-3 py-1 rounded-lg text-primary text-xs">{user.uid}</code>
+          </div>
+          <button 
+            onClick={() => signOut(auth)}
+            className="w-full py-3 bg-slate-700 text-white font-bold rounded-xl hover:bg-slate-600 transition-all"
+          >
+            Sair da Conta
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-background-dark text-slate-100 pb-24 font-display">
@@ -600,7 +784,7 @@ export default function App() {
             <div className="bg-primary/20 p-2 rounded-xl">
               <Bike className="text-primary w-6 h-6" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight">MotoFix Manager</h1>
+            <h1 className="text-xl font-bold tracking-tight">MotoFix Recorrentes</h1>
           </div>
           <div className="flex items-center gap-3">
             <button 
@@ -632,7 +816,7 @@ export default function App() {
                 </div>
                 <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                   <div className="flex justify-between items-center mb-2">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Manutenções Hoje</p>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Trocas Hoje</p>
                     <Calendar className="w-4 h-4 text-primary" />
                   </div>
                   <p className="text-3xl font-bold text-white">
@@ -641,7 +825,7 @@ export default function App() {
                 </div>
                 <div className="bg-primary/10 p-6 rounded-2xl border border-primary/30 relative overflow-hidden">
                   <div className="flex justify-between items-center mb-2">
-                    <p className="text-xs font-bold text-primary uppercase tracking-widest">Alertas Vencidos</p>
+                    <p className="text-xs font-bold text-primary uppercase tracking-widest">Vencidos</p>
                     <AlertTriangle className="w-4 h-4 text-primary" />
                   </div>
                   <p className="text-3xl font-bold text-primary">{overdueClients.length}</p>
@@ -652,7 +836,7 @@ export default function App() {
               {/* Chart */}
               <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-bold text-lg">Tendências de Manutenção</h3>
+                  <h3 className="font-bold text-lg">Histórico de Trocas</h3>
                   <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">Últimos 6 Meses</p>
                 </div>
                 <div className="h-64 w-full">
@@ -692,12 +876,12 @@ export default function App() {
               {/* Quick Action */}
               <button 
                 onClick={() => { setEditingClient(null); setView('new-client'); }}
-                className="w-full bg-primary p-8 rounded-3xl flex flex-col items-center justify-center gap-4 text-white hover:bg-primary/90 transition-all shadow-2xl shadow-primary/20 group"
+                className="w-full bg-primary p-6 rounded-3xl flex flex-col items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-2xl shadow-primary/20 group"
               >
-                <div className="bg-white/20 p-4 rounded-full group-hover:scale-110 transition-transform">
-                  <Plus className="w-8 h-8" />
+                <div className="bg-white/20 p-3 rounded-full group-hover:scale-110 transition-transform">
+                  <Plus className="w-6 h-6" />
                 </div>
-                <span className="text-xl font-bold">Novo Registro de Manutenção</span>
+                <span className="text-lg font-bold">Nova Troca de Óleo</span>
               </button>
 
               {/* Urgent Alerts */}
@@ -744,8 +928,17 @@ export default function App() {
 
           {view === 'clients' && (
             <div className="space-y-6">
+              {/* Quick Action at Top for Mobile Access */}
+              <button 
+                onClick={() => { setEditingClient(null); setView('new-client'); }}
+                className="w-full bg-primary p-4 rounded-2xl flex items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/10"
+              >
+                <Plus className="w-5 h-5" />
+                <span className="font-bold">Nova Troca de Óleo</span>
+              </button>
+
               <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                <h2 className="text-2xl font-bold">Registros de Manutenção</h2>
+                <h2 className="text-2xl font-bold">Clientes e Trocas</h2>
                 <div className="relative w-full md:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <input 
@@ -851,7 +1044,7 @@ export default function App() {
 
           {view === 'history' && (
             <div className="space-y-6">
-              <h2 className="text-2xl font-bold">Histórico de Manutenções</h2>
+              <h2 className="text-2xl font-bold">Histórico de Trocas</h2>
               <div className="space-y-4">
                 {maintenances.map(record => (
                   <div key={record.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between">
@@ -968,6 +1161,13 @@ export default function App() {
                       </div>
                     </div>
 
+                    {warranty.serviceDescription && (
+                      <div className="pt-3 border-t border-slate-700/50">
+                        <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Descrição</p>
+                        <p className="text-xs text-slate-400 whitespace-pre-wrap break-words">{warranty.serviceDescription}</p>
+                      </div>
+                    )}
+
                   </div>
                 ))}
               </div>
@@ -1076,6 +1276,105 @@ export default function App() {
             <div className="space-y-6 max-w-2xl mx-auto">
               <h2 className="text-2xl font-bold">Configurações</h2>
               
+              {/* Subscription Status (for non-admins) */}
+              {userProfile?.role !== 'admin' && userProfile?.subscriptionExpiresAt && (
+                <div className={cn(
+                  "p-6 rounded-2xl border flex items-center justify-between",
+                  isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) 
+                    ? "bg-red-500/10 border-red-500/30 text-red-500" 
+                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
+                )}>
+                  <div className="flex items-center gap-4">
+                    <div className={cn(
+                      "p-3 rounded-xl",
+                      isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) ? "bg-red-500/20" : "bg-emerald-500/20"
+                    )}>
+                      <ShieldCheck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest opacity-70">Sua Assinatura</p>
+                      <p className="text-lg font-bold">
+                        {isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) 
+                          ? "Expirada" 
+                          : `Ativa até ${format(parseISO(userProfile.subscriptionExpiresAt), 'dd/MM/yyyy')}`}
+                      </p>
+                      <p className="text-xs opacity-60">
+                        {isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) 
+                          ? "Renove para continuar usando todos os recursos." 
+                          : "Seu acesso está garantido até a data acima."}
+                      </p>
+                    </div>
+                  </div>
+                  {isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) && (
+                    <button 
+                      onClick={() => window.open('https://wa.me/5511999999999?text=Olá, gostaria de renovar minha assinatura do MotoFix', '_blank')}
+                      className="bg-red-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+                    >
+                      Renovar
+                    </button>
+                  )}
+                </div>
+              )}
+              
+              <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <Bike className="w-5 h-5 text-primary" />
+                  <h3 className="font-bold">Perfil da Empresa</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Nome da Empresa</label>
+                    <input 
+                      value={settings?.businessName || ''}
+                      onChange={(e) => setSettings(s => s ? { ...s, businessName: e.target.value } : null)}
+                      placeholder="Ex: MotoFix Centro Automotivo"
+                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp da Empresa</label>
+                    <input 
+                      value={settings?.businessPhone || ''}
+                      onChange={(e) => setSettings(s => s ? { ...s, businessPhone: e.target.value } : null)}
+                      placeholder="Ex: (69) 99999-9999"
+                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Instagram (@)</label>
+                    <input 
+                      value={settings?.businessInstagram || ''}
+                      onChange={(e) => setSettings(s => s ? { ...s, businessInstagram: e.target.value } : null)}
+                      placeholder="Ex: @motofix_oficial"
+                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Endereço</label>
+                    <input 
+                      value={settings?.businessAddress || ''}
+                      onChange={(e) => setSettings(s => s ? { ...s, businessAddress: e.target.value } : null)}
+                      placeholder="Rua Exemplo, 123 - Centro"
+                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+                <button 
+                  onClick={async () => {
+                    if (user && settings) {
+                      const updatedSettings = { ...settings, isProfileComplete: !!settings.businessName };
+                      await setDoc(doc(db, 'settings', user.uid), updatedSettings);
+                      setSettings(updatedSettings);
+                      setSaveMessage("Perfil atualizado com sucesso!");
+                      setTimeout(() => setSaveMessage(null), 3000);
+                    }
+                  }}
+                  className="w-full bg-emerald-500/10 text-emerald-500 py-3 rounded-xl font-bold hover:bg-emerald-500/20 transition-all border border-emerald-500/30"
+                >
+                  Salvar Perfil da Empresa
+                </button>
+              </div>
+
               <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
                 <div className="flex items-center gap-3 mb-2">
                   <MessageSquare className="w-5 h-5 text-primary" />
@@ -1090,9 +1389,16 @@ export default function App() {
                 <button 
                   onClick={async () => {
                     if (user && settings) {
-                      await setDoc(doc(db, 'settings', user.uid), settings);
-                      setSaveMessage("Configurações salvas com sucesso!");
-                      setTimeout(() => setSaveMessage(null), 3000);
+                      try {
+                        await setDoc(doc(db, 'settings', user.uid), {
+                          ...settings,
+                          whatsappTemplate: settings.whatsappTemplate
+                        }, { merge: true });
+                        setSaveMessage("Configurações salvas com sucesso!");
+                        setTimeout(() => setSaveMessage(null), 3000);
+                      } catch (error) {
+                        handleFirestoreError(error, OperationType.UPDATE, 'settings');
+                      }
                     }
                   }}
                   className="w-full bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all"
@@ -1212,8 +1518,9 @@ export default function App() {
 
               <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                 <h3 className="font-bold mb-4">Sobre o App</h3>
-                <p className="text-sm text-slate-400">MotoFix Manager v2.0</p>
-                <p className="text-sm text-slate-400">Desenvolvido para gerenciamento prático de manutenção.</p>
+                <p className="text-sm text-slate-400">MotoFix Recorrentes v2.0</p>
+                <p className="text-sm text-slate-400">Desenvolvido para gerenciamento de troca de óleo e garantias de serviço.</p>
+                <p className="text-xs text-slate-500 mt-4">Todos os direitos reservados.</p>
               </div>
             </div>
           )}
@@ -1297,6 +1604,117 @@ export default function App() {
               </form>
             </div>
           )}
+          {view === 'admin' && userProfile?.role === 'admin' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold">Painel Administrativo</h2>
+                <div className="bg-primary/10 px-3 py-1 rounded-full flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-bold text-primary">ADMIN</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                {allUsers.map(u => (
+                  <div key={u.uid} className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className={cn(
+                        "w-12 h-12 rounded-xl flex items-center justify-center",
+                        u.isActive ? "bg-emerald-500/10" : "bg-red-500/10"
+                      )}>
+                        {u.isActive ? <UserCheck className="w-6 h-6 text-emerald-500" /> : <UserX className="w-6 h-6 text-red-500" />}
+                      </div>
+                      <div>
+                        <p className="font-bold">{u.displayName}</p>
+                        <p className="text-xs text-slate-500">{u.email}</p>
+                        <div className="flex flex-col gap-1 mt-1">
+                          <p className="text-[10px] text-slate-600">Desde: {format(parseISO(u.createdAt), 'dd/MM/yyyy')}</p>
+                          {u.subscriptionExpiresAt && (
+                            <p className={cn(
+                              "text-[10px] font-bold",
+                              isBefore(parseISO(u.subscriptionExpiresAt), new Date()) ? "text-red-500" : "text-emerald-500"
+                            )}>
+                              Expira: {format(parseISO(u.subscriptionExpiresAt), 'dd/MM/yyyy')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest",
+                          u.isActive ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500"
+                        )}>
+                          {u.isActive ? 'Ativo' : 'Bloqueado'}
+                        </div>
+                        {u.uid !== user.uid && (
+                          <button 
+                            onClick={() => toggleUserStatus(u)}
+                            className={cn(
+                              "p-2 rounded-lg transition-all",
+                              u.isActive ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" : "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                            )}
+                          >
+                            {u.isActive ? <Lock className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Subscription Quick Actions */}
+                      {u.uid !== user.uid && (
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="flex flex-wrap justify-end gap-1 max-w-[150px]">
+                            <button 
+                              onClick={() => updateSubscription(u.uid, -30)}
+                              className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-[10px] font-bold rounded text-red-500 transition-colors border border-red-500/20"
+                              title="Remover 30 dias"
+                            >
+                              -30d
+                            </button>
+                            <button 
+                              onClick={() => updateSubscription(u.uid, -7)}
+                              className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-[10px] font-bold rounded text-red-500 transition-colors border border-red-500/20"
+                              title="Remover 7 dias"
+                            >
+                              -7d
+                            </button>
+                            <button 
+                              onClick={() => updateSubscription(u.uid, 30)}
+                              className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-[10px] font-bold rounded text-emerald-500 transition-colors border border-emerald-500/20"
+                              title="Adicionar 30 dias"
+                            >
+                              +30d
+                            </button>
+                            <button 
+                              onClick={() => updateSubscription(u.uid, 90)}
+                              className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-[10px] font-bold rounded text-emerald-500 transition-colors border border-emerald-500/20"
+                              title="Adicionar 90 dias"
+                            >
+                              +90d
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase">Vencimento:</span>
+                            <input 
+                              type="date" 
+                              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[10px] text-white focus:ring-1 focus:ring-primary outline-none"
+                              defaultValue={u.subscriptionExpiresAt ? format(parseISO(u.subscriptionExpiresAt), 'yyyy-MM-dd') : ''}
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  setSubscriptionDate(u.uid, e.target.value);
+                                }
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Bottom Nav */}
@@ -1314,15 +1732,25 @@ export default function App() {
               className={cn("flex flex-col items-center gap-1 transition-colors", view === 'clients' ? 'text-primary' : 'text-slate-500')}
             >
               <Users className="w-6 h-6" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">Clientes</span>
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Trocas</span>
             </button>
-            <button 
-              onClick={() => setView('warranties')}
-              className={cn("flex flex-col items-center gap-1 transition-colors", view === 'warranties' ? 'text-primary' : 'text-slate-500')}
-            >
-              <ShieldCheck className="w-6 h-6" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">Garantias</span>
-            </button>
+            {userProfile?.role === 'admin' ? (
+              <button 
+                onClick={() => setView('admin')}
+                className={cn("flex flex-col items-center gap-1 transition-colors", view === 'admin' ? 'text-primary' : 'text-slate-500')}
+              >
+                <Shield className="w-6 h-6" />
+                <span className="text-[10px] font-bold uppercase tracking-tighter">Admin</span>
+              </button>
+            ) : (
+              <button 
+                onClick={() => setView('warranties')}
+                className={cn("flex flex-col items-center gap-1 transition-colors", view === 'warranties' ? 'text-primary' : 'text-slate-500')}
+              >
+                <ShieldCheck className="w-6 h-6" />
+                <span className="text-[10px] font-bold uppercase tracking-tighter">Garantias</span>
+              </button>
+            )}
             <button 
               onClick={() => setView('history')}
               className={cn("flex flex-col items-center gap-1 transition-colors", view === 'history' ? 'text-primary' : 'text-slate-500')}
@@ -1339,6 +1767,63 @@ export default function App() {
             </button>
           </div>
         </nav>
+
+        {/* First Login Profile Setup Modal */}
+        {settings && !settings.isProfileComplete && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <div className="bg-slate-800 w-full max-w-md rounded-3xl border border-primary/30 p-8 shadow-2xl animate-in fade-in zoom-in duration-300">
+              <div className="bg-primary/20 w-16 h-16 rounded-2xl flex items-center justify-center mb-6">
+                <Bike className="w-8 h-8 text-primary" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Bem-vindo ao MotoFix!</h2>
+              <p className="text-slate-400 mb-8">Para começar, precisamos de alguns dados da sua empresa para os certificados de garantia.</p>
+              
+              <form 
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const businessName = formData.get('businessName') as string;
+                  if (!businessName) return;
+
+                  const updatedSettings = {
+                    ...settings,
+                    businessName,
+                    businessPhone: formData.get('businessPhone') as string,
+                    businessInstagram: formData.get('businessInstagram') as string,
+                    businessAddress: formData.get('businessAddress') as string,
+                    isProfileComplete: true
+                  };
+                  
+                  if (user) {
+                    await setDoc(doc(db, 'settings', user.uid), updatedSettings);
+                    setSettings(updatedSettings);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome da Empresa</label>
+                  <input name="businessName" required placeholder="Ex: MotoFix Centro Automotivo" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
+                  <input name="businessPhone" placeholder="Ex: (69) 99999-9999" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Instagram (@)</label>
+                  <input name="businessInstagram" placeholder="Ex: @motofix_oficial" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Endereço</label>
+                  <input name="businessAddress" placeholder="Rua Exemplo, 123 - Centro" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                </div>
+                <button type="submit" className="w-full bg-primary py-4 rounded-2xl font-bold text-white mt-4 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20">
+                  Concluir Cadastro
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </ErrorBoundary>
   );

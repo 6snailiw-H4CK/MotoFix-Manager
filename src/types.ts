@@ -26,10 +26,25 @@ export interface MaintenanceRecord {
 }
 
 export interface Settings {
-  whatsappTemplate: string;
   userId: string;
+  whatsappTemplate: string;
   oilTypes: string[];
   warrantyCategories: string[];
+  businessName?: string;
+  businessPhone?: string;
+  businessInstagram?: string;
+  businessAddress?: string;
+  isProfileComplete?: boolean;
+}
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: 'admin' | 'user';
+  isActive: boolean;
+  subscriptionExpiresAt?: string; // ISO date string
+  createdAt: string;
 }
 
 export interface Warranty {

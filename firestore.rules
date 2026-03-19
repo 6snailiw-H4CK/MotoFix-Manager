@@ -34,7 +34,24 @@ service cloud.firestore {
     // Document ID: userId
     // Fields:
     //   - whatsappTemplate: string (optional, max 1000 chars)
+    //   - oilTypes: list (optional, strings)
+    //   - warrantyCategories: list (optional, strings)
+    //   - businessName: string (optional, max 100 chars)
+    //   - businessPhone: string (optional, max 20 chars)
+    //   - businessInstagram: string (optional, max 50 chars)
+    //   - businessAddress: string (optional, max 200 chars)
+    //   - isProfileComplete: bool (optional)
     //   - userId: string (required, matches auth.uid)
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required, matches auth.uid)
+    //   - email: string (required)
+    //   - displayName: string (optional)
+    //   - role: string (required, enum: admin, user)
+    //   - isActive: bool (required)
+    //   - createdAt: string (required, ISO 8601)
     //
     // Collection: warranties
     // Document ID: auto-generated
@@ -116,7 +133,20 @@ service cloud.firestore {
 
     function isValidSettings(data) {
       return data.userId == request.auth.uid &&
-             (!('whatsappTemplate' in data) || (data.whatsappTemplate is string && data.whatsappTemplate.size() <= 1000));
+             (!('whatsappTemplate' in data) || (data.whatsappTemplate is string && data.whatsappTemplate.size() <= 1000)) &&
+             (!('businessName' in data) || (data.businessName is string && data.businessName.size() <= 100)) &&
+             (!('businessPhone' in data) || (data.businessPhone is string && data.businessPhone.size() <= 20)) &&
+             (!('businessInstagram' in data) || (data.businessInstagram is string && data.businessInstagram.size() <= 50)) &&
+             (!('businessAddress' in data) || (data.businessAddress is string && data.businessAddress.size() <= 200)) &&
+             (!('isProfileComplete' in data) || (data.isProfileComplete is bool));
+    }
+
+    function isValidUser(data) {
+      return data.uid == request.auth.uid &&
+             data.email is string &&
+             data.role in ['admin', 'user'] &&
+             data.isActive is bool &&
+             isValidDateString(data.createdAt);
     }
 
     function isValidWarranty(data) {
@@ -152,6 +182,13 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidSettings(request.resource.data);
       allow update: if isOwner(userId) && isValidSettings(request.resource.data);
       allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'user' || isAdmin());
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
+      allow delete: if isAdmin();
     }
 
     match /warranties/{warrantyId} {
