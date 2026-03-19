@@ -467,6 +467,7 @@ export default function App() {
       nextMaintenanceDate: nextDate,
       recurrenceDays: recurrence,
       status: getStatus(nextDate),
+      lastAlertDate: clientData.lastAlertDate || '',
       createdAt: clientData.createdAt || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     };
 
@@ -704,7 +705,7 @@ export default function App() {
     }
   };
 
-  const sendWhatsApp = (client: Client) => {
+  const sendWhatsApp = async (client: Client) => {
     if (!settings) return;
     const dateStr = format(parseISO(client.nextMaintenanceDate), 'dd/MM/yyyy');
     const message = settings.whatsappTemplate
@@ -714,7 +715,17 @@ export default function App() {
     
     const phone = client.contact.replace(/\D/g, '');
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
+    
+    try {
+      // Mark as sent for today
+      await updateDoc(doc(db, 'clients', client.id), {
+        lastAlertDate: format(new Date(), 'yyyy-MM-dd')
+      });
+      window.open(url, '_blank');
+    } catch (error) {
+      console.error("Error updating lastAlertDate", error);
+      window.open(url, '_blank');
+    }
   };
 
   // --- Views ---
@@ -726,6 +737,13 @@ export default function App() {
 
   const overdueClients = clients.filter(c => c.status === 'OVERDUE');
   const warningClients = clients.filter(c => c.status === 'WARNING');
+  
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const pendingAlerts = clients.filter(c => {
+    const isDue = c.status === 'OVERDUE' || c.status === 'WARNING';
+    const notSentToday = c.lastAlertDate !== todayStr;
+    return isDue && notSentToday;
+  });
 
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthScreen />;
@@ -804,7 +822,54 @@ export default function App() {
 
         <main className="max-w-5xl mx-auto p-4 space-y-6">
           {view === 'dashboard' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
+              {/* Daily Alerts Section */}
+              {pendingAlerts.length > 0 && (
+                <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-primary/20 p-2 rounded-lg">
+                        <Bell className="w-5 h-5 text-primary animate-bounce" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg">Alertas de Hoje</h3>
+                        <p className="text-sm text-slate-400">{pendingAlerts.length} clientes precisam de aviso</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {pendingAlerts.slice(0, 4).map(client => (
+                      <div key={client.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between group hover:border-primary/50 transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center">
+                            <Bike className="w-5 h-5 text-slate-400" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm">{client.name}</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{client.bikeModel}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => sendWhatsApp(client)}
+                          className="bg-primary p-2 rounded-xl text-white hover:scale-110 transition-transform shadow-lg shadow-primary/20"
+                          title="Enviar WhatsApp"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {pendingAlerts.length > 4 && (
+                    <button 
+                      onClick={() => setView('clients')}
+                      className="text-xs text-primary font-bold uppercase tracking-widest hover:underline"
+                    >
+                      + {pendingAlerts.length - 4} outros alertas pendentes
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">

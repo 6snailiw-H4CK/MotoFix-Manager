@@ -12,6 +12,7 @@ export interface Client {
   status: MaintenanceStatus;
   userId: string;
   createdAt: string;
+  lastAlertDate?: string; // ISO date string
 }
 
 export interface MaintenanceRecord {
