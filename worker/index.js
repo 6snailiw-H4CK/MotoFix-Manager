@@ -5,33 +5,47 @@ import { ReminderEligibility, buildMessage, delay } from './utils.js';
 import { format } from 'date-fns';
 
 const DEFAULT_TEMPLATE = "Olá {client}, sua {bike} está com a manutenção programada para {date}. Vamos agendar?";
+const MAX_PER_RUN = 30;
 
 /**
  * Função principal que executa a rotina de alertas.
  */
 async function runAlertRoutine() {
-  console.log('--- Buscando clientes no Firestore ---');
+  console.log('--- Iniciando rotina de alertas ---');
+  if (forceRun) {
+    console.log('⚠️ MODO FORÇADO ATIVO - enviando para TODOS os clientes');
+  }
+  console.log('Buscando clientes no Firestore...');
   
   try {
     const clientsSnapshot = await db.collection('clients').get();
     const allClients = clientsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    console.log(`Total de clientes encontrados: ${allClients.length}`);
+    console.log(`Total clientes: ${allClients.length}`);
 
-    // Filtra clientes elegíveis
-    const pendingClients = ReminderEligibility.getPendingReminderClients(allClients);
-    console.log(`Clientes elegíveis para alerta hoje: ${pendingClients.length}`);
+    // Filtra clientes elegíveis (ou todos se forçado)
+    const pendingClients = forceRun 
+      ? allClients 
+      : ReminderEligibility.getPendingReminderClients(allClients);
+    console.log(`Clientes elegíveis: ${pendingClients.length}`);
 
     if (pendingClients.length === 0) {
       console.log('Nenhum cliente pendente para hoje.');
+      console.log('Rotina finalizada');
       return;
     }
 
+    let sentCount = 0;
     for (const client of pendingClients) {
-      console.log(`Processando: ${client.name} (${client.contact})`);
+      if (sentCount >= MAX_PER_RUN) {
+        console.log(`Limite de ${MAX_PER_RUN} envios atingido nesta rodada. Parando.`);
+        break;
+      }
 
-      if (!client.contact) {
-        console.warn(`Cliente ${client.name} sem telefone. Pulando...`);
+      console.log(`Processando cliente: ${client.name}`);
+
+      if (!client.contact || client.contact.replace(/\D/g, '').length < 10) {
+        console.warn(`Cliente sem telefone válido (${client.contact}), pulando`);
         continue;
       }
 
@@ -39,12 +53,14 @@ async function runAlertRoutine() {
       const now = new Date().toISOString();
       const dateOnly = now.split('T')[0];
 
+      console.log(`Enviando mensagem para: ${client.contact}`);
       try {
         // Envia mensagem via WhatsApp
         const result = await sendMessage(client.contact, message);
 
         if (result.success) {
-          console.log(`Sucesso: Mensagem enviada para ${client.name}`);
+          console.log('Mensagem enviada com sucesso');
+          sentCount++;
 
           // 1. Registra log em message_logs
           await db.collection('message_logs').add({
@@ -79,7 +95,7 @@ async function runAlertRoutine() {
         }
 
       } catch (error) {
-        console.error(`Falha ao processar ${client.name}:`, error.message);
+        console.error('Erro ao enviar:', error.message);
 
         // Registra log de falha
         await db.collection('message_logs').add({
@@ -104,10 +120,14 @@ async function runAlertRoutine() {
       }
 
       // Delay entre envios para evitar bloqueio (10 a 20 segundos)
-      const waitTime = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
-      console.log(`Aguardando ${waitTime / 1000}s para o próximo envio...`);
-      await delay(waitTime);
+      if (sentCount < pendingClients.length && sentCount < MAX_PER_RUN) {
+        const waitTime = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
+        console.log(`Aguardando ${waitTime / 1000}s para o próximo envio...`);
+        await delay(waitTime);
+      }
     }
+
+    console.log(`Rotina finalizada. Total enviado: ${sentCount}`);
 
   } catch (error) {
     console.error('Erro crítico na rotina de alertas:', error);
@@ -117,11 +137,22 @@ async function runAlertRoutine() {
 // Inicializa o WhatsApp
 initializeWhatsApp();
 
-// Inicia o agendador (todo dia às 09:00)
-startScheduler(runAlertRoutine, '0 9 * * *');
+// Verifica se deve rodar agora via argumento --run-now ou forçar envio --force
+const runNow = process.argv.includes('--run-now');
+const forceRun = process.argv.includes('--force');
 
-// Para teste manual imediato (descomente se quiser rodar ao iniciar)
-// setTimeout(() => {
-//   console.log('Iniciando teste manual imediato...');
-//   runAlertRoutine();
-// }, 10000);
+if (runNow) {
+  console.log('Modo manual detectado (--run-now). Executando rotina em 5 segundos...');
+  setTimeout(() => {
+    runAlertRoutine();
+  }, 5000);
+} else {
+  // Inicia o agendador normal (todo dia às 09:00)
+  startScheduler(runAlertRoutine, '0 9 * * *');
+  
+  // Execução automática para teste (desenvolvimento)
+  setTimeout(() => {
+    console.log('Executando rotina automática para teste...');
+    runAlertRoutine();
+  }, 5000);
+}
