@@ -1,4 +1,4 @@
-import { db, FIRESTORE_DATABASE_ID, PROJECT_ID, admin } from './firebase.js';
+import { db, FIRESTORE_DATABASE_ID, PROJECT_ID } from './firebase.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeWhatsApp, sendMessage } from './whatsapp.js';
 import { startScheduler } from './scheduler.js';
@@ -8,6 +8,21 @@ import { format } from 'date-fns';
 const DEFAULT_TEMPLATE = "Olá {client}, sua {bike} está com a manutenção programada para {date}. Vamos agendar?";
 const MAX_PER_RUN = 30;
 
+// Verifica se deve rodar agora via argumento --run-now ou forçar envio --force
+const runNow = process.argv.includes('--run-now');
+const forceRun = process.argv.includes('--force');
+
+// Extrai userId do argumento --userId=XXX ou da variável de ambiente WORKER_USER_ID
+const userIdArg = process.argv.find(arg => arg.startsWith('--userId='))?.split('=')[1];
+const WORKER_USER_ID = userIdArg || process.env.WORKER_USER_ID;
+
+if (!WORKER_USER_ID) {
+  console.error('❌ ERRO: WORKER_USER_ID não definido. Use a variável de ambiente ou o argumento --userId=XXX');
+  process.exit(1);
+}
+
+console.log(`📌 Worker configurado para o usuário (userId): ${WORKER_USER_ID}`);
+
 /**
  * Função principal que executa a rotina de alertas.
  */
@@ -15,9 +30,10 @@ async function runAlertRoutine() {
   console.log('--- Iniciando rotina de alertas ---');
   console.log(`📌 Project ID: ${PROJECT_ID}`);
   console.log(`📌 Database ID: ${FIRESTORE_DATABASE_ID}`);
+  console.log(`📌 User ID Alvo: ${WORKER_USER_ID}`);
   
   if (forceRun) {
-    console.log('⚠️ MODO FORÇADO ATIVO - enviando para TODOS os clientes');
+    console.log('⚠️ MODO FORÇADO ATIVO - enviando para TODOS os clientes do usuário');
   }
 
   // Teste de conexão com Firestore
@@ -26,7 +42,8 @@ async function runAlertRoutine() {
 
   try {
     console.log(`🔍 Testando banco nomeado: "${FIRESTORE_DATABASE_ID}"...`);
-    await activeDb.collection('clients').limit(1).get();
+    // Testa se consegue ler a coleção filtrando pelo usuário
+    await activeDb.collection('clients').where('userId', '==', WORKER_USER_ID).limit(1).get();
     console.log('✅ Conexão com banco nomeado validada');
   } catch (error) {
     console.error('❌ Erro ao ler banco nomeado:');
@@ -42,9 +59,8 @@ async function runAlertRoutine() {
       console.log('🔄 Tentando fallback para banco "(default)" para diagnóstico...');
       try {
         const defaultDb = getFirestore(admin.app());
-        await defaultDb.collection('clients').limit(1).get();
+        await defaultDb.collection('clients').where('userId', '==', WORKER_USER_ID).limit(1).get();
         console.log('✅ Conexão com banco "(default)" FUNCIONOU!');
-        console.log('⚠️ AVISO: O worker está configurado com o databaseId errado, mas o banco default tem a coleção "clients".');
         activeDb = defaultDb;
       } catch (defaultError) {
         console.error('❌ Erro também no banco "(default)":', defaultError.message);
@@ -59,13 +75,16 @@ async function runAlertRoutine() {
     }
   }
 
-  console.log('Buscando clientes no Firestore...');
+  console.log(`Buscando clientes do usuário ${WORKER_USER_ID} no Firestore...`);
   
   try {
-    const clientsSnapshot = await activeDb.collection('clients').get();
+    const clientsSnapshot = await activeDb.collection('clients')
+      .where('userId', '==', WORKER_USER_ID)
+      .get();
+      
     const allClients = clientsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    console.log(`Total clientes: ${allClients.length}`);
+    console.log(`Total clientes encontrados para este usuário: ${allClients.length}`);
 
     // Filtra clientes elegíveis (ou todos se forçado)
     const pendingClients = forceRun 
@@ -107,7 +126,7 @@ async function runAlertRoutine() {
           sentCount++;
 
           // 1. Registra log em message_logs
-          await db.collection('message_logs').add({
+          await activeDb.collection('message_logs').add({
             clientId: client.id,
             clientName: client.name,
             bikeModel: client.bikeModel,
@@ -117,12 +136,12 @@ async function runAlertRoutine() {
             trigger: 'scheduled',
             message: message,
             createdAt: now,
-            userId: 'system-worker'
+            userId: WORKER_USER_ID
           });
 
           // 2. Atualiza automation no cliente
           const currentAttempts = client.automation?.sendAttempts || 0;
-          await db.collection('clients').doc(client.id).update({
+          await activeDb.collection('clients').doc(client.id).update({
             lastAlertDate: dateOnly,
             automation: {
               ...client.automation,
@@ -142,7 +161,7 @@ async function runAlertRoutine() {
         console.error('Erro ao enviar:', error.message);
 
         // Registra log de falha
-        await db.collection('message_logs').add({
+        await activeDb.collection('message_logs').add({
           clientId: client.id,
           clientName: client.name,
           bikeModel: client.bikeModel,
@@ -153,11 +172,11 @@ async function runAlertRoutine() {
           message: message,
           error: error.message,
           createdAt: now,
-          userId: 'system-worker'
+          userId: WORKER_USER_ID
         });
 
         // Atualiza erro no cliente
-        await db.collection('clients').doc(client.id).update({
+        await activeDb.collection('clients').doc(client.id).update({
           'automation.lastError': error.message,
           'automation.lastSendStatus': 'failed'
         });
@@ -178,25 +197,28 @@ async function runAlertRoutine() {
   }
 }
 
-// Inicializa o WhatsApp
-initializeWhatsApp();
-
-// Verifica se deve rodar agora via argumento --run-now ou forçar envio --force
-const runNow = process.argv.includes('--run-now');
-const forceRun = process.argv.includes('--force');
-
-if (runNow) {
-  console.log('Modo manual detectado (--run-now). Executando rotina em 5 segundos...');
-  setTimeout(() => {
-    runAlertRoutine();
-  }, 5000);
-} else {
-  // Inicia o agendador normal (todo dia às 09:00)
-  startScheduler(runAlertRoutine, '0 9 * * *');
-  
-  // Execução automática para teste (desenvolvimento)
-  setTimeout(() => {
-    console.log('Executando rotina automática para teste...');
-    runAlertRoutine();
-  }, 5000);
+// Inicializa o WhatsApp para o usuário específico e depois inicia a rotina/scheduler
+async function start() {
+  try {
+    console.log('Iniciando sistema...');
+    await initializeWhatsApp(WORKER_USER_ID);
+    
+    if (runNow) {
+      console.log('WhatsApp pronto, iniciando rotina manual (--run-now)...');
+      await runAlertRoutine();
+    } else {
+      console.log('WhatsApp pronto, iniciando scheduler...');
+      // Inicia o agendador normal (todo dia às 09:00)
+      startScheduler(runAlertRoutine, '0 9 * * *');
+      
+      // Execução automática para teste (desenvolvimento)
+      console.log('Executando primeira rotina automática para teste...');
+      await runAlertRoutine();
+    }
+  } catch (error) {
+    console.error('❌ Falha crítica na inicialização do worker:', error.message);
+    process.exit(1);
+  }
 }
+
+start();

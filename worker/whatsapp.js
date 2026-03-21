@@ -2,55 +2,84 @@ import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
 import qrcode from 'qrcode-terminal';
 
-const client = new Client({
-  authStrategy: new LocalAuth({
-    dataPath: './.wwebjs_auth'
-  }),
-  puppeteer: {
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }
-});
-
-client.on('qr', (qr) => {
-  console.log('--- ESCANEIE O QR CODE ABAIXO ---');
-  qrcode.generate(qr, { small: true });
-});
-
+let client;
 let isReady = false;
 
-client.on('ready', () => {
-  isReady = true;
-  console.log('✅ WhatsApp Web está pronto!');
-  
-  // Logar informações da conta conectada
-  if (client.info) {
-    console.log('--- Informações da Conta Conectada ---');
-    console.log(`📌 Usuário: ${client.info.wid?.user || 'N/A'}`);
-    console.log(`📌 ID Completo: ${client.info.wid?._serialized || 'N/A'}`);
-    console.log(`📌 Nome (Pushname): ${client.info.pushname || 'N/A'}`);
-    console.log(`📌 Plataforma: ${client.info.platform || 'N/A'}`);
-    console.log('--------------------------------------');
-  }
-});
+export const initializeWhatsApp = (userId) => {
+  return new Promise((resolve, reject) => {
+    console.log(`Iniciando WhatsApp para o usuário: ${userId || 'GLOBAL'}...`);
+    console.log('Aguardando evento ready...');
+    
+    try {
+      client = new Client({
+        authStrategy: new LocalAuth({
+          clientId: userId || 'global',
+          dataPath: './.wwebjs_auth'
+        }),
+        puppeteer: {
+          headless: false,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--no-first-run',
+            '--no-default-browser-check'
+          ]
+        }
+      });
 
-client.on('auth_failure', (msg) => {
-  isReady = false;
-  console.error('❌ Falha na autenticação do WhatsApp:', msg);
-});
+      client.on('loading_screen', (percent, message) => {
+        console.log(`Loading WhatsApp: ${percent}% - ${message}`);
+      });
 
-client.on('disconnected', (reason) => {
-  isReady = false;
-  console.log('⚠️ WhatsApp desconectado:', reason);
-});
+      client.on('qr', (qr) => {
+        console.log('--- ESCANEIE O QR CODE ABAIXO ---');
+        qrcode.generate(qr, { small: true });
+      });
 
-export const initializeWhatsApp = () => {
-  console.log('Iniciando WhatsApp...');
-  client.initialize();
+      client.on('ready', () => {
+        isReady = true;
+        console.log('✅ WhatsApp Web está pronto!');
+        
+        // Logar informações da conta conectada
+        if (client.info) {
+          console.log('--- Informações da Conta Conectada ---');
+          console.log(`📌 Usuário WhatsApp: ${client.info.wid?.user || 'N/A'}`);
+          console.log(`📌 ID da Sessão (clientId): ${userId || 'global'}`);
+          console.log(`📌 Nome (Pushname): ${client.info.pushname || 'N/A'}`);
+          console.log(`📌 Plataforma: ${client.info.platform || 'N/A'}`);
+          console.log('--------------------------------------');
+        }
+        resolve(client);
+      });
+
+      client.on('auth_failure', (msg) => {
+        isReady = false;
+        console.error('❌ Falha na autenticação do WhatsApp:', msg);
+        reject(new Error(`Falha na autenticação: ${msg}`));
+      });
+
+      client.on('disconnected', (reason) => {
+        isReady = false;
+        console.log('⚠️ WhatsApp desconectado:', reason);
+      });
+
+      client.initialize().catch(err => {
+        console.error('❌ Falha ao iniciar sessão WhatsApp. Pode haver sessão corrompida ou processo Chrome preso.');
+        console.error('Erro detalhado:', err);
+        reject(err);
+      });
+    } catch (error) {
+      console.error('❌ Erro na configuração do cliente WhatsApp:', error);
+      reject(error);
+    }
+  });
 };
 
 export const sendMessage = async (phone, message) => {
   try {
-    if (!isReady) {
+    if (!client || !isReady) {
       return { success: false, error: 'WhatsApp não está pronto. Aguarde a inicialização.' };
     }
 
