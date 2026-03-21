@@ -78,6 +78,7 @@ import { Client, MaintenanceRecord, MaintenanceStatus, Settings, Warranty, UserP
 import { AlertService } from './services/alertService';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import WhatsAppConnection from './components/WhatsAppConnection';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -1442,6 +1443,13 @@ export default function App() {
             <div className="space-y-6 max-w-2xl mx-auto">
               <h2 className="text-2xl font-bold">Configurações</h2>
               
+              {/* WhatsApp Connection Section */}
+              {user && (
+                <div className="mb-6">
+                  <WhatsAppConnection userId={user.uid} />
+                </div>
+              )}
+
               {/* Subscription Status (for non-admins) */}
               {userProfile?.role !== 'admin' && userProfile?.subscriptionExpiresAt && (
                 <div className={cn(
