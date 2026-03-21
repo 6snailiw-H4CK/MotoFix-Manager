@@ -1,4 +1,5 @@
-import { db } from './firebase.js';
+import { db, FIRESTORE_DATABASE_ID, PROJECT_ID, admin } from './firebase.js';
+import { getFirestore } from 'firebase-admin/firestore';
 import { initializeWhatsApp, sendMessage } from './whatsapp.js';
 import { startScheduler } from './scheduler.js';
 import { ReminderEligibility, buildMessage, delay } from './utils.js';
@@ -12,13 +13,56 @@ const MAX_PER_RUN = 30;
  */
 async function runAlertRoutine() {
   console.log('--- Iniciando rotina de alertas ---');
+  console.log(`📌 Project ID: ${PROJECT_ID}`);
+  console.log(`📌 Database ID: ${FIRESTORE_DATABASE_ID}`);
+  
   if (forceRun) {
     console.log('⚠️ MODO FORÇADO ATIVO - enviando para TODOS os clientes');
   }
+
+  // Teste de conexão com Firestore
+  console.log('Testando conexão com Firestore...');
+  let activeDb = db;
+
+  try {
+    console.log(`🔍 Testando banco nomeado: "${FIRESTORE_DATABASE_ID}"...`);
+    await activeDb.collection('clients').limit(1).get();
+    console.log('✅ Conexão com banco nomeado validada');
+  } catch (error) {
+    console.error('❌ Erro ao ler banco nomeado:');
+    console.error(`Código: ${error.code}`);
+    console.error(`Mensagem: ${error.message}`);
+    
+    if (error.code === 5 || error.message.includes('NOT_FOUND')) {
+      console.error("\n⚠️ Firestore retornou NOT_FOUND. Verifique se:");
+      console.error("1. A serviceAccountKey.json pertence ao projeto correto");
+      console.error("2. O Firestore Database existe nesse projeto");
+      console.error("3. O databaseId está correto no arquivo firebase.js\n");
+      
+      console.log('🔄 Tentando fallback para banco "(default)" para diagnóstico...');
+      try {
+        const defaultDb = getFirestore(admin.app());
+        await defaultDb.collection('clients').limit(1).get();
+        console.log('✅ Conexão com banco "(default)" FUNCIONOU!');
+        console.log('⚠️ AVISO: O worker está configurado com o databaseId errado, mas o banco default tem a coleção "clients".');
+        activeDb = defaultDb;
+      } catch (defaultError) {
+        console.error('❌ Erro também no banco "(default)":', defaultError.message);
+      }
+    }
+    
+    console.error('Stack resumida:', error.stack?.split('\n').slice(0, 3).join('\n'));
+    
+    if (activeDb === db) {
+      console.error('🛑 Abortando: Não foi possível validar conexão com Firestore.');
+      return;
+    }
+  }
+
   console.log('Buscando clientes no Firestore...');
   
   try {
-    const clientsSnapshot = await db.collection('clients').get();
+    const clientsSnapshot = await activeDb.collection('clients').get();
     const allClients = clientsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     console.log(`Total clientes: ${allClients.length}`);
