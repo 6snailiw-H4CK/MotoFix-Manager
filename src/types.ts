@@ -5,14 +5,39 @@ export interface Client {
   name: string;
   bikeModel: string;
   oilType: string;
-  contact: string;
+  contact: string; // Telefone do cliente
   lastMaintenanceDate: string;
   nextMaintenanceDate: string;
   recurrenceDays: number;
   status: MaintenanceStatus;
   userId: string;
   createdAt: string;
-  lastAlertDate?: string; // ISO date string
+  lastAlertDate?: string; // Campo legado (YYYY-MM-DD)
+  automation?: {
+    lastAlertDate?: string; // YYYY-MM-DD
+    lastSendAt?: string;    // ISO Timestamp
+    lastSendStatus?: 'pending' | 'opened_whatsapp' | 'sent' | 'failed';
+    lastSendChannel?: 'whatsapp' | 'email' | 'manual';
+    sendAttempts?: number;
+    nextSendEligibleAt?: string; // ISO Timestamp ou YYYY-MM-DD
+    lastError?: string;
+  };
+}
+
+export interface MessageLog {
+  id?: string;
+  clientId: string;
+  clientName: string;
+  bikeModel?: string;
+  phone: string;
+  channel: 'whatsapp' | 'email' | 'manual';
+  status: 'pending' | 'opened_whatsapp' | 'sent' | 'failed';
+  trigger: 'manual' | 'scheduled' | 'retry';
+  message: string;
+  createdAt: string;
+  sentAt?: string;
+  error?: string | null;
+  userId: string;
 }
 
 export interface MaintenanceRecord {
@@ -44,7 +69,7 @@ export interface UserProfile {
   displayName: string;
   role: 'admin' | 'user';
   isActive: boolean;
-  subscriptionExpiresAt?: string; // ISO date string
+  subscriptionExpiresAt?: string;
   createdAt: string;
 }
 

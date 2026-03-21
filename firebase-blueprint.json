@@ -14,7 +14,20 @@
         "recurrenceDays": { "type": "integer", "description": "Interval in days between services" },
         "status": { "type": "string", "enum": ["OK", "WARNING", "OVERDUE"], "description": "Current maintenance status" },
         "userId": { "type": "string", "description": "Owner of this record" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastAlertDate": { "type": "string", "description": "Legacy alert date (YYYY-MM-DD)" },
+        "automation": {
+          "type": "object",
+          "properties": {
+            "lastAlertDate": { "type": "string" },
+            "lastSendAt": { "type": "string", "format": "date-time" },
+            "lastSendStatus": { "type": "string" },
+            "lastSendChannel": { "type": "string" },
+            "sendAttempts": { "type": "integer" },
+            "nextSendEligibleAt": { "type": "string" },
+            "lastError": { "type": "string" }
+          }
+        }
       },
       "required": ["name", "bikeModel", "contact", "lastMaintenanceDate", "nextMaintenanceDate", "recurrenceDays", "userId"]
     },
@@ -61,6 +74,39 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["clientName", "serviceType", "serviceDate", "durationMonths", "warrantyNumber", "userId"]
+    },
+    "AlertLog": {
+      "title": "Alert Log",
+      "description": "Log of WhatsApp alert attempts sent to clients (Legacy).",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "bikeModel": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["SENT", "FAILED"] },
+        "userId": { "type": "string" }
+      },
+      "required": ["clientId", "timestamp", "status", "userId"]
+    },
+    "MessageLog": {
+      "title": "Message Log",
+      "description": "Detailed log of messages sent to clients.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "bikeModel": { "type": "string" },
+        "phone": { "type": "string" },
+        "channel": { "type": "string", "enum": ["whatsapp", "email", "manual"] },
+        "status": { "type": "string", "enum": ["pending", "opened_whatsapp", "sent", "failed"] },
+        "trigger": { "type": "string", "enum": ["manual", "scheduled", "retry"] },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" }
+      },
+      "required": ["clientId", "clientName", "phone", "channel", "status", "trigger", "message", "createdAt", "userId"]
     }
   },
   "firestore": {
@@ -79,6 +125,14 @@
     "/warranties/{warrantyId}": {
       "schema": "Warranty",
       "description": "Collection of warranty certificates"
+    },
+    "/alert_logs/{logId}": {
+      "schema": "AlertLog",
+      "description": "Log of all alert attempts (Legacy)"
+    },
+    "/message_logs/{logId}": {
+      "schema": "MessageLog",
+      "description": "Detailed log of all message attempts"
     }
   }
 }

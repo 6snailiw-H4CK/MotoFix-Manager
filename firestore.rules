@@ -67,6 +67,31 @@ service cloud.firestore {
     //   - warrantyNumber: number (required)
     //   - userId: string (required, matches auth.uid)
     //
+    // Collection: alert_logs (Legacy)
+    // Document ID: auto-generated
+    // Fields:
+    //   - clientId: string (required)
+    //   - clientName: string (required)
+    //   - bikeModel: string (required)
+    //   - timestamp: string (required, ISO 8601)
+    //   - message: string (required)
+    //   - status: string (required, enum: SENT, FAILED)
+    //   - userId: string (required, matches auth.uid)
+    //
+    // Collection: message_logs
+    // Document ID: auto-generated
+    // Fields:
+    //   - clientId: string (required)
+    //   - clientName: string (required)
+    //   - bikeModel: string (optional)
+    //   - phone: string (required)
+    //   - channel: string (required, enum: whatsapp, email, manual)
+    //   - status: string (required, enum: pending, opened_whatsapp, sent, failed)
+    //   - trigger: string (required, enum: manual, scheduled, retry)
+    //   - message: string (required)
+    //   - createdAt: string (required, ISO 8601)
+    //   - userId: string (required, matches auth.uid)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -122,7 +147,9 @@ service cloud.firestore {
              isValidDateString(data.nextMaintenanceDate) &&
              data.recurrenceDays is number && data.recurrenceDays > 0 &&
              data.status in ['OK', 'WARNING', 'OVERDUE'] &&
-             data.userId == request.auth.uid;
+             data.userId == request.auth.uid &&
+             (!('lastAlertDate' in data) || (data.lastAlertDate is string)) &&
+             (!('automation' in data) || (data.automation is map));
     }
 
     function isValidMaintenance(data) {
@@ -156,6 +183,28 @@ service cloud.firestore {
              isValidDateString(data.expiryDate) &&
              data.durationMonths is number && data.durationMonths > 0 &&
              data.warrantyNumber is number &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidAlertLog(data) {
+      return data.clientId is string &&
+             data.clientName is string &&
+             data.bikeModel is string &&
+             isValidDateString(data.timestamp) &&
+             data.message is string &&
+             data.status in ['SENT', 'FAILED'] &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidMessageLog(data) {
+      return data.clientId is string &&
+             data.clientName is string &&
+             data.phone is string &&
+             data.channel in ['whatsapp', 'email', 'manual'] &&
+             data.status in ['pending', 'opened_whatsapp', 'sent', 'failed'] &&
+             data.trigger in ['manual', 'scheduled', 'retry'] &&
+             data.message is string &&
+             isValidDateString(data.createdAt) &&
              data.userId == request.auth.uid;
     }
 
@@ -195,6 +244,20 @@ service cloud.firestore {
       allow read: if isDocOwner() || isAdmin();
       allow create: if isAuthenticated() && isValidWarranty(request.resource.data) && uidUnchanged();
       allow update: if isDocOwner() && isValidWarranty(request.resource.data) && uidNotModified();
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /alert_logs/{logId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidAlertLog(request.resource.data) && uidUnchanged();
+      allow update: if false;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /message_logs/{logId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidMessageLog(request.resource.data) && uidUnchanged();
+      allow update: if false;
       allow delete: if isDocOwner() || isAdmin();
     }
 

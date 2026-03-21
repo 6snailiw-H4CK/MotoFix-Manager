@@ -58,7 +58,9 @@ import {
   Shield,
   Lock,
   UserCheck,
-  UserX
+  UserX,
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -72,7 +74,8 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
-import { Client, MaintenanceRecord, MaintenanceStatus, Settings, Warranty, UserProfile } from './types';
+import { Client, MaintenanceRecord, MaintenanceStatus, Settings, Warranty, UserProfile, MessageLog } from './types';
+import { AlertService } from './services/alertService';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -80,6 +83,20 @@ import html2canvas from 'html2canvas';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+// Toast Component
+const Toast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
+  <div className={cn(
+    "fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-300",
+    type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+  )}>
+    {type === 'success' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+    <p className="font-bold text-sm">{message}</p>
+    <button onClick={onClose} className="ml-2 hover:opacity-70">
+      <X className="w-4 h-4" />
+    </button>
+  </div>
+);
 
 // --- Components ---
 
@@ -241,10 +258,19 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [editingWarranty, setEditingWarranty] = useState<Warranty | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'client' | 'maintenance' | 'warranty' } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'client' | 'maintenance' | 'warranty' | 'message_log' } | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [messageLogs, setMessageLogs] = useState<MessageLog[]>([]);
 
   const ADMIN_EMAIL = '6snailiw@gmail.com';
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // Chart Data Calculation
   const chartData = useMemo(() => {
@@ -390,12 +416,19 @@ export default function App() {
       });
     }
 
+    const messageLogsQuery = query(collection(db, 'message_logs'), where('userId', '==', user.uid));
+    const unsubscribeMessageLogs = onSnapshot(messageLogsQuery, (snapshot) => {
+      const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MessageLog));
+      setMessageLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'message_logs'));
+
     return () => {
       unsubscribeClients();
       unsubscribeMaintenances();
       unsubscribeWarranties();
       unsubscribeSettings();
       unsubscribeUsers();
+      unsubscribeMessageLogs();
     };
   }, [user, userProfile]);
 
@@ -649,6 +682,17 @@ export default function App() {
     }
   };
 
+  const handleDeleteMessageLog = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'message_logs', id));
+      setDeleteConfirm(null);
+      setToast({ message: "Log excluído com sucesso.", type: 'success' });
+    } catch (error) {
+      console.error("Erro ao excluir log:", error);
+      setToast({ message: "Erro ao excluir log.", type: 'error' });
+    }
+  };
+
   const toggleUserStatus = async (targetUser: UserProfile) => {
     if (userProfile?.role !== 'admin') return;
     try {
@@ -706,25 +750,28 @@ export default function App() {
   };
 
   const sendWhatsApp = async (client: Client) => {
-    if (!settings) return;
-    const dateStr = format(parseISO(client.nextMaintenanceDate), 'dd/MM/yyyy');
-    const message = settings.whatsappTemplate
-      .replace('{client}', client.name)
-      .replace('{bike}', client.bikeModel)
-      .replace('{date}', dateStr);
-    
-    const phone = client.contact.replace(/\D/g, '');
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    if (!settings || !user) return;
     
     try {
-      // Mark as sent for today
-      await updateDoc(doc(db, 'clients', client.id), {
-        lastAlertDate: format(new Date(), 'yyyy-MM-dd')
-      });
-      window.open(url, '_blank');
-    } catch (error) {
-      console.error("Error updating lastAlertDate", error);
-      window.open(url, '_blank');
+      // 1. Montar a mensagem usando o template centralizado
+      const message = AlertService.buildReminderMessage(settings.whatsappTemplate, client);
+      
+      // 2. Validar telefone e criar URL
+      const url = AlertService.createWhatsAppUrl(client, message);
+      
+      // 3. Registrar a tentativa (status 'opened_whatsapp')
+      const result = await AlertService.registerManualReminderAttempt(db, user.uid, client, message);
+      
+      if (result.success) {
+        // 4. Abrir WhatsApp
+        window.open(url, '_blank');
+        setToast({ message: "WhatsApp aberto e tentativa registrada.", type: 'success' });
+      } else {
+        throw new Error("Falha ao registrar log de alerta no banco de dados.");
+      }
+    } catch (error: any) {
+      console.error("Erro ao enviar lembrete:", error);
+      setToast({ message: error.message || "Erro inesperado ao processar o lembrete.", type: 'error' });
     }
   };
 
@@ -737,13 +784,7 @@ export default function App() {
 
   const overdueClients = clients.filter(c => c.status === 'OVERDUE');
   const warningClients = clients.filter(c => c.status === 'WARNING');
-  
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const pendingAlerts = clients.filter(c => {
-    const isDue = c.status === 'OVERDUE' || c.status === 'WARNING';
-    const notSentToday = c.lastAlertDate !== todayStr;
-    return isDue && notSentToday;
-  });
+  const pendingAlerts = AlertService.getPendingAlerts(clients);
 
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthScreen />;
@@ -1108,46 +1149,106 @@ export default function App() {
           )}
 
           {view === 'history' && (
-            <div className="space-y-6">
-              <h2 className="text-2xl font-bold">Histórico de Trocas</h2>
-              <div className="space-y-4">
-                {maintenances.map(record => (
-                  <div key={record.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="bg-primary/10 p-3 rounded-xl">
-                        <History className="w-5 h-5 text-primary" />
+            <div className="space-y-8">
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold">Histórico de Trocas</h2>
+                <div className="space-y-4">
+                  {maintenances.map(record => (
+                    <div key={record.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-primary/10 p-3 rounded-xl">
+                          <History className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-bold">{record.clientName}</p>
+                          <p className="text-xs text-slate-500">{record.bikeModel} • {record.oilType}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-bold">{record.clientName}</p>
-                        <p className="text-xs text-slate-500">{record.bikeModel} • {record.oilType}</p>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <p className="font-bold text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Realizada</p>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            if (deleteConfirm?.id === record.id) {
+                              handleDeleteMaintenance(record.id);
+                            } else {
+                              setDeleteConfirm({ id: record.id, type: 'maintenance' });
+                            }
+                          }}
+                          className={cn(
+                            "p-2 rounded-lg transition-colors ml-2",
+                            deleteConfirm?.id === record.id 
+                              ? "bg-red-500 text-white animate-pulse" 
+                              : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                          )}
+                          title={deleteConfirm?.id === record.id ? "Confirmar Exclusão" : "Excluir Registro"}
+                        >
+                          {deleteConfirm?.id === record.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-right">
-                        <p className="font-bold text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
-                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Realizada</p>
-                      </div>
-                      <button 
-                        onClick={() => {
-                          if (deleteConfirm?.id === record.id) {
-                            handleDeleteMaintenance(record.id);
-                          } else {
-                            setDeleteConfirm({ id: record.id, type: 'maintenance' });
-                          }
-                        }}
-                        className={cn(
-                          "p-2 rounded-lg transition-colors ml-2",
-                          deleteConfirm?.id === record.id 
-                            ? "bg-red-500 text-white animate-pulse" 
-                            : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                        )}
-                        title={deleteConfirm?.id === record.id ? "Confirmar Exclusão" : "Excluir Registro"}
-                      >
-                        {deleteConfirm?.id === record.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
-                      </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-6 pt-8 border-t border-slate-800">
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  <Bell className="w-6 h-6 text-primary" />
+                  Logs de Alertas
+                </h2>
+                <div className="space-y-4">
+                  {messageLogs.length === 0 ? (
+                    <div className="text-center py-12 bg-slate-800/30 rounded-3xl border border-dashed border-slate-700">
+                      <AlertCircle className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                      <p className="text-slate-500">Nenhum alerta enviado ainda.</p>
                     </div>
-                  </div>
-                ))}
+                  ) : (
+                    messageLogs.map(log => (
+                      <div key={log.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-emerald-500/10 p-3 rounded-xl">
+                            <MessageSquare className="w-5 h-5 text-emerald-500" />
+                          </div>
+                          <div>
+                            <p className="font-bold">{log.clientName}</p>
+                            <p className="text-xs text-slate-500">{log.bikeModel}</p>
+                          </div>
+                        </div>
+                          <div className="text-right flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="font-bold text-white">{format(parseISO(log.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+                              <span className={cn(
+                                "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest",
+                                log.status === 'opened_whatsapp' ? "bg-emerald-500/20 text-emerald-500" : "bg-slate-500/20 text-slate-500"
+                              )}>
+                                {log.status === 'opened_whatsapp' ? 'WhatsApp Aberto' : log.status}
+                              </span>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                if (deleteConfirm?.id === log.id) {
+                                  handleDeleteMessageLog(log.id!);
+                                } else {
+                                  setDeleteConfirm({ id: log.id!, type: 'message_log' });
+                                }
+                              }}
+                              className={cn(
+                                "p-2 rounded-lg transition-colors",
+                                deleteConfirm?.id === log.id 
+                                  ? "bg-red-500 text-white animate-pulse" 
+                                  : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                              )}
+                              title={deleteConfirm?.id === log.id ? "Confirmar Exclusão" : "Excluir Log"}
+                            >
+                              {deleteConfirm?.id === log.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                            </button>
+                          </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1888,6 +1989,13 @@ export default function App() {
               </form>
             </div>
           </div>
+        )}
+        {toast && (
+          <Toast 
+            message={toast.message} 
+            type={toast.type} 
+            onClose={() => setToast(null)} 
+          />
         )}
       </div>
     </ErrorBoundary>
