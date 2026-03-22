@@ -13,6 +13,7 @@
         "nextMaintenanceDate": { "type": "string", "format": "date-time", "description": "Date of the next scheduled service" },
         "recurrenceDays": { "type": "integer", "description": "Interval in days between services" },
         "status": { "type": "string", "enum": ["OK", "WARNING", "OVERDUE"], "description": "Current maintenance status" },
+        "notificacao_enviada": { "type": "boolean", "description": "Control flag for automated notifications" },
         "userId": { "type": "string", "description": "Owner of this record" },
         "createdAt": { "type": "string", "format": "date-time" },
         "lastAlertDate": { "type": "string", "description": "Legacy alert date (YYYY-MM-DD)" },

@@ -480,7 +480,8 @@ export default function App() {
       await updateDoc(doc(db, 'clients', client.id), {
         lastMaintenanceDate: date,
         nextMaintenanceDate: nextDate,
-        status: getStatus(nextDate)
+        status: getStatus(nextDate),
+        notificacao_enviada: false
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'maintenances/clients');
@@ -501,6 +502,7 @@ export default function App() {
       nextMaintenanceDate: nextDate,
       recurrenceDays: recurrence,
       status: getStatus(nextDate),
+      notificacao_enviada: clientData.notificacao_enviada || false,
       lastAlertDate: clientData.lastAlertDate || '',
       createdAt: clientData.createdAt || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     };

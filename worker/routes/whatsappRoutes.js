@@ -1,7 +1,27 @@
 import express from 'express';
-import { initSession, getSessionStatus, disconnectSession } from '../whatsappManager.js';
+import { initSession, getSessionStatus, disconnectSession, runAutomation } from '../whatsappManager.js';
 
 const router = express.Router();
+
+/**
+ * POST /api/whatsapp/trigger-automation
+ * Dispara manualmente a verificação de clientes vencidos
+ */
+router.post('/trigger-automation', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: 'userId é obrigatório' });
+    }
+
+    console.log(`[WhatsAppRoutes] Disparando automação manual para o usuário: ${userId}`);
+    const result = await runAutomation(userId);
+    res.json(result);
+  } catch (error) {
+    console.error('[WhatsAppRoutes] Erro na automação:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 /**
  * POST /api/whatsapp/connect

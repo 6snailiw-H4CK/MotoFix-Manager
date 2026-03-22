@@ -10,6 +10,7 @@ export interface Client {
   nextMaintenanceDate: string;
   recurrenceDays: number;
   status: MaintenanceStatus;
+  notificacao_enviada?: boolean;
   userId: string;
   createdAt: string;
   lastAlertDate?: string; // Campo legado (YYYY-MM-DD)

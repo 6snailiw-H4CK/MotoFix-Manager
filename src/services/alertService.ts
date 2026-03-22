@@ -100,6 +100,7 @@ export const AlertService = {
 
     const updateData = {
       lastAlertDate: dateOnly, // Legado
+      notificacao_enviada: true,
       automation: {
         ...client.automation, // Preserva campos como nextSendEligibleAt e lastError
         lastAlertDate: dateOnly,
