@@ -5,21 +5,31 @@ import { readFileSync } from 'fs';
 import path from 'path';
 
 // Inicializa Firebase Admin se ainda não estiver inicializado
-if (admin.apps.length === 0) {
-  try {
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+let db;
+try {
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  
+  if (admin.apps.length === 0) {
     admin.initializeApp({
-      projectId: config.projectId,
-      databaseId: config.firestoreDatabaseId
+      projectId: config.projectId
     });
-    console.log('[WhatsAppManager] Firebase Admin inicializado com sucesso.');
-  } catch (error) {
-    console.error('[WhatsAppManager] Erro ao inicializar Firebase Admin:', error);
+    console.log('[WhatsAppManager] Firebase Admin inicializado.');
   }
+  
+  db = admin.firestore();
+  // Configura o databaseId se for um banco nomeado (comum no AI Studio)
+  if (config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)') {
+    try {
+      db.settings({ databaseId: config.firestoreDatabaseId });
+    } catch (e) {
+      // settings() pode falhar se já tiver sido chamado, o que é esperado em alguns casos de reload
+      console.log('[WhatsAppManager] Nota: Settings do Firestore já aplicadas ou erro ignorado.');
+    }
+  }
+} catch (error) {
+  console.error('[WhatsAppManager] Erro crítico na inicialização do Firebase Admin:', error);
 }
-
-const db = admin.firestore();
 
 // Map para armazenar as sessões por userId
 const sessions = new Map();
