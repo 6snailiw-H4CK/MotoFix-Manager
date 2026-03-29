@@ -210,33 +210,33 @@ const AuthScreen = () => (
       </svg>
     </div>
 
-    <div className="max-w-md w-full space-y-8 text-center">
-      <div className="space-y-4">
-        <div className="bg-primary/20 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-primary/20">
-          <Bike className="w-12 h-12 text-primary" />
+    <div className="max-w-md w-full space-y-6 text-center">
+      <div className="space-y-3">
+        <div className="bg-primary/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl shadow-primary/20">
+          <Bike className="w-10 h-10 text-primary" />
         </div>
-        <h1 className="text-4xl font-bold text-white tracking-tight">MotoFix Recorrentes</h1>
-        <p className="text-slate-400 text-lg">Gerencie a troca de óleo de suas motos com facilidade e alertas automáticos.</p>
+        <h1 className="text-3xl font-bold text-white tracking-tight">MotoFix Manager</h1>
+        <p className="text-slate-400 text-sm max-w-[280px] mx-auto">Gerencie trocas de óleo e garantias com alertas inteligentes.</p>
       </div>
 
       <button 
         onClick={() => signInWithPopup(auth, googleProvider)}
-        className="w-full flex items-center justify-center gap-3 py-4 bg-white text-slate-900 font-bold rounded-2xl hover:bg-slate-100 transition-all active:scale-95 shadow-xl"
+        className="w-full flex items-center justify-center gap-3 py-3.5 bg-white text-slate-900 font-bold rounded-xl hover:bg-slate-100 transition-all active:scale-95 shadow-xl text-sm"
       >
-        <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+        <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4" />
         Entrar com Google
       </button>
 
-      <div className="pt-8 grid grid-cols-2 gap-4">
-        <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700">
-          <Bell className="w-6 h-6 text-primary mb-2 mx-auto" />
-          <p className="text-xs font-bold text-white uppercase tracking-wider">Alertas</p>
-          <p className="text-[10px] text-slate-500">WhatsApp automático</p>
+      <div className="pt-4 grid grid-cols-2 gap-3">
+        <div className="p-3 bg-slate-800/50 rounded-xl border border-slate-700/50">
+          <Bell className="w-5 h-5 text-primary mb-1.5 mx-auto" />
+          <p className="text-[10px] font-bold text-white uppercase tracking-wider">Alertas</p>
+          <p className="text-[9px] text-slate-500">WhatsApp automático</p>
         </div>
-        <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700">
-          <History className="w-6 h-6 text-primary mb-2 mx-auto" />
-          <p className="text-xs font-bold text-white uppercase tracking-wider">Histórico</p>
-          <p className="text-[10px] text-slate-500">Log completo</p>
+        <div className="p-3 bg-slate-800/50 rounded-xl border border-slate-700/50">
+          <ShieldCheck className="w-5 h-5 text-primary mb-1.5 mx-auto" />
+          <p className="text-[10px] font-bold text-white uppercase tracking-wider">Garantias</p>
+          <p className="text-[9px] text-slate-500">Gestão de prazos</p>
         </div>
       </div>
     </div>
@@ -766,33 +766,28 @@ export default function App() {
   const sendWhatsApp = (client: Client) => {
     if (!settings || !user) return;
     
-    try {
-      // 1. Montar a mensagem e URL de forma SÍNCRONA
-      // Isso é CRÍTICO para o iOS não bloquear o pop-up
-      const message = AlertService.buildReminderMessage(settings.whatsappTemplate, client);
-      const url = AlertService.createWhatsAppUrl(client, message);
-      
-      // 2. Abrir WhatsApp IMEDIATAMENTE
-      // O Safari exige que window.open seja disparado diretamente pelo evento de clique
-      window.open(url, '_blank');
-      
-      // 3. Registrar a tentativa e atualizar status em segundo plano (async)
-      // Não usamos 'await' aqui para não bloquear a UI ou causar comportamentos estranhos
+    // 1. Montar a mensagem e URL de forma SÍNCRONA
+    // Isso é CRÍTICO para o iOS não bloquear o pop-up
+    const message = AlertService.buildReminderMessage(settings.whatsappTemplate, client);
+    const url = AlertService.createWhatsAppUrl(client, message);
+    
+    // 2. Abrir WhatsApp IMEDIATAMENTE
+    // O Safari exige que window.open seja disparado diretamente pelo evento de clique
+    // Sem NENHUM await ou chamada assíncrona antes.
+    const win = window.open(url, '_blank');
+    
+    // 3. Registrar a tentativa e atualizar status em segundo plano (async)
+    // Não usamos 'await' aqui para não bloquear a UI ou causar comportamentos estranhos
+    if (win) {
       AlertService.registerManualReminderAttempt(db, user.uid, client, message)
         .then(result => {
           if (result.success) {
-            setToast({ message: "WhatsApp aberto e status atualizado para 'Concluído'.", type: 'success' });
-          } else {
-            console.warn("Falha ao registrar log de alerta no banco de dados.");
+            setToast({ message: "WhatsApp aberto e status atualizado.", type: 'success' });
           }
         })
-        .catch(err => {
-          console.error("Erro ao registrar log:", err);
-        });
-
-    } catch (error: any) {
-      console.error("Erro ao enviar lembrete:", error);
-      setToast({ message: error.message || "Erro inesperado ao processar o lembrete.", type: 'error' });
+        .catch(err => console.error("Erro ao registrar log:", err));
+    } else {
+      setToast({ message: "O navegador bloqueou a abertura do WhatsApp. Por favor, permita pop-ups.", type: 'error' });
     }
   };
 
@@ -859,25 +854,25 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-background-dark text-slate-100 pb-24 font-display">
         {/* Header */}
-        <header className="sticky top-0 z-50 bg-background-dark/80 backdrop-blur-md border-b border-primary/10 p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-primary/20 p-2 rounded-xl">
-              <Bike className="text-primary w-6 h-6" />
+        <header className="sticky top-0 z-50 bg-background-dark/80 backdrop-blur-md border-b border-primary/10 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="bg-primary/20 p-1.5 rounded-lg">
+              <Bike className="text-primary w-5 h-5" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight">MotoFix Recorrentes</h1>
+            <h1 className="text-lg font-bold tracking-tight">MotoFix</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button 
               onClick={() => setView('settings')}
-              className="p-2 rounded-full hover:bg-slate-800 transition-colors text-slate-400"
+              className="p-1.5 rounded-full hover:bg-slate-800 transition-colors text-slate-400"
             >
-              <SettingsIcon className="w-5 h-5" />
+              <SettingsIcon className="w-4.5 h-4.5" />
             </button>
             <button 
               onClick={() => signOut(auth)}
-              className="p-2 rounded-full hover:bg-red-500/10 transition-colors text-red-500"
+              className="p-1.5 rounded-full hover:bg-red-500/10 transition-colors text-red-500"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-4.5 h-4.5" />
             </button>
           </div>
         </header>
@@ -887,36 +882,35 @@ export default function App() {
             <div className="space-y-8">
               {/* Painel de Envios do Dia */}
               {pendingAlerts.length > 0 && (
-                <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 space-y-4">
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-primary/20 p-2 rounded-lg">
-                        <Bell className="w-5 h-5 text-primary animate-bounce" />
+                    <div className="flex items-center gap-2">
+                      <div className="bg-primary/20 p-1 rounded-lg">
+                        <Bell className="w-3.5 h-3.5 text-primary animate-bounce" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-lg">Painel de Envios do Dia</h3>
-                        <p className="text-sm text-slate-400">{pendingAlerts.length} Clientes para avisar hoje</p>
+                        <h3 className="font-bold text-sm">Envios do Dia</h3>
+                        <p className="text-[10px] text-slate-400">{pendingAlerts.length} pendentes hoje</p>
                       </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     {pendingAlerts.slice(0, 4).map(client => (
-                      <div key={client.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between group hover:border-primary/50 transition-all">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center">
-                            <Bike className="w-5 h-5 text-slate-400" />
+                      <div key={client.id} className="bg-slate-800/40 p-2.5 rounded-lg border border-slate-700/50 flex items-center justify-between group hover:border-primary/30 transition-all">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-slate-700/50 flex items-center justify-center">
+                            <Bike className="w-3.5 h-3.5 text-slate-400" />
                           </div>
                           <div>
-                            <p className="font-bold text-sm">{client.name}</p>
-                            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{client.bikeModel}</p>
+                            <p className="font-bold text-[11px] leading-tight">{client.name}</p>
+                            <p className="text-[8px] text-slate-500 uppercase font-bold tracking-tighter">{client.bikeModel}</p>
                           </div>
                         </div>
                         <button 
                           onClick={() => sendWhatsApp(client)}
-                          className="bg-primary p-2 rounded-xl text-white hover:scale-110 transition-transform shadow-lg shadow-primary/20"
-                          title="Enviar WhatsApp"
+                          className="bg-primary p-1.5 rounded-lg text-white hover:scale-105 transition-transform shadow-md shadow-primary/10"
                         >
-                          <MessageSquare className="w-4 h-4" />
+                          <MessageSquare className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
@@ -924,75 +918,77 @@ export default function App() {
                   {pendingAlerts.length > 4 && (
                     <button 
                       onClick={() => setView('clients')}
-                      className="text-xs text-primary font-bold uppercase tracking-widest hover:underline"
+                      className="text-[9px] text-primary font-bold uppercase tracking-widest hover:underline px-1"
                     >
-                      + {pendingAlerts.length - 4} outros alertas pendentes
+                      + {pendingAlerts.length - 4} outros alertas
                     </button>
                   )}
                 </div>
               )}
 
               {/* Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Total Clientes</p>
-                    <Users className="w-4 h-4 text-primary" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Total Clientes</p>
+                    <Users className="w-3 h-3 text-primary/60" />
                   </div>
-                  <p className="text-3xl font-bold text-white">{clients.length}</p>
+                  <p className="text-xl font-bold text-white">{clients.length}</p>
                 </div>
-                <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Trocas Hoje</p>
-                    <Calendar className="w-4 h-4 text-primary" />
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Trocas Hoje</p>
+                    <Calendar className="w-3 h-3 text-primary/60" />
                   </div>
-                  <p className="text-3xl font-bold text-white">
+                  <p className="text-xl font-bold text-white">
                     {maintenances.filter(m => format(parseISO(m.date), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')).length}
                   </p>
                 </div>
-                <div className="bg-primary/10 p-6 rounded-2xl border border-primary/30 relative overflow-hidden">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="text-xs font-bold text-primary uppercase tracking-widest">Vencidos</p>
-                    <AlertTriangle className="w-4 h-4 text-primary" />
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-red-500/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-0.5 h-full bg-red-500/50" />
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-red-500/80 uppercase tracking-widest">Vencidos</p>
+                    <AlertTriangle className="w-3 h-3 text-red-500/60" />
                   </div>
-                  <p className="text-3xl font-bold text-primary">{overdueClients.length}</p>
-                  <AlertTriangle className="absolute -right-4 -bottom-4 w-24 h-24 text-primary/5" />
+                  <p className="text-xl font-bold text-red-500">{overdueClients.length}</p>
                 </div>
               </div>
 
               {/* Chart */}
-              <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-bold text-lg">Histórico de Trocas</h3>
-                  <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">Últimos 6 Meses</p>
+              <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-700/50">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-bold text-sm">Histórico Mensal</h3>
+                  <p className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Últimos 6 Meses</p>
                 </div>
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height={256}>
+                <div className="h-[240px] w-full">
+                  <ResponsiveContainer width="100%" height={240}>
                     <BarChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} strokeOpacity={0.3} />
                       <XAxis 
                         dataKey="month" 
                         axisLine={false} 
                         tickLine={false} 
-                        tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                        tick={{ fill: '#64748b', fontSize: 9 }} 
                       />
                       <YAxis 
                         axisLine={false} 
                         tickLine={false} 
-                        tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                        tick={{ fill: '#64748b', fontSize: 9 }} 
                       />
                       <Tooltip 
-                        cursor={{ fill: 'rgba(242, 120, 13, 0.1)' }}
+                        cursor={{ fill: 'rgba(242, 120, 13, 0.05)' }}
                         contentStyle={{ 
-                          backgroundColor: '#1e293b', 
+                          backgroundColor: '#0f172a', 
                           border: '1px solid #334155',
-                          borderRadius: '12px',
-                          color: '#fff'
+                          borderRadius: '10px',
+                          color: '#fff',
+                          fontSize: '9px',
+                          padding: '8px'
                         }}
                       />
-                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      <Bar dataKey="count" radius={[3, 3, 0, 0]} barSize={24}>
                         {chartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? '#f2780d' : '#f2780d44'} />
+                          <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? '#f2780d' : '#f2780d33'} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -1003,48 +999,48 @@ export default function App() {
               {/* Quick Action */}
               <button 
                 onClick={() => { setEditingClient(null); setView('new-client'); }}
-                className="w-full bg-primary p-6 rounded-3xl flex flex-col items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-2xl shadow-primary/20 group"
+                className="w-full bg-primary py-4 px-6 rounded-2xl flex items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-xl shadow-primary/10 group"
               >
-                <div className="bg-white/20 p-3 rounded-full group-hover:scale-110 transition-transform">
-                  <Plus className="w-6 h-6" />
+                <div className="bg-white/20 p-2 rounded-full group-hover:scale-105 transition-transform">
+                  <Plus className="w-5 h-5" />
                 </div>
-                <span className="text-lg font-bold">Nova Troca de Óleo</span>
+                <span className="text-base font-bold">Nova Troca de Óleo</span>
               </button>
 
               {/* Urgent Alerts */}
               {overdueClients.length > 0 && (
-                <div className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
-                  <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
+                  <div className="p-3 border-b border-slate-700 flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5 text-red-500" />
-                      <h3 className="font-bold">Alertas Urgentes</h3>
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                      <h3 className="font-bold text-sm">Alertas Urgentes</h3>
                     </div>
-                    <span className="bg-red-500/10 text-red-500 text-xs font-bold px-2 py-1 rounded-lg">
+                    <span className="bg-red-500/10 text-red-500 text-[10px] font-bold px-2 py-0.5 rounded-md">
                       {overdueClients.length} VENCIDOS
                     </span>
                   </div>
                   <div className="divide-y divide-slate-700">
                     {overdueClients.slice(0, 5).map(client => (
-                      <div key={client.id} className="p-4 flex items-center justify-between hover:bg-slate-800 transition-colors">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-xl bg-slate-700 flex items-center justify-center">
-                            <Bike className="w-6 h-6 text-slate-400" />
+                      <div key={client.id} className="p-3 flex items-center justify-between hover:bg-slate-800 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-slate-700 flex items-center justify-center">
+                            <Bike className="w-4.5 h-4.5 text-slate-400" />
                           </div>
                           <div>
-                            <p className="font-bold">{client.name}</p>
-                            <p className="text-sm text-slate-500">{client.bikeModel}</p>
+                            <p className="font-bold text-xs">{client.name}</p>
+                            <p className="text-[10px] text-slate-500">{client.bikeModel}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-red-500 font-bold text-sm">Vencido</p>
-                          <p className="text-xs text-slate-500">{format(parseISO(client.nextMaintenanceDate), 'dd/MM/yyyy')}</p>
+                          <p className="text-red-500 font-bold text-[10px]">Vencido</p>
+                          <p className="text-[9px] text-slate-500">{format(parseISO(client.nextMaintenanceDate), 'dd/MM/yyyy')}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                   <button 
                     onClick={() => setView('clients')}
-                    className="w-full p-4 text-primary text-sm font-bold hover:bg-slate-800 transition-colors"
+                    className="w-full p-3 text-primary text-xs font-bold hover:bg-slate-800 transition-colors"
                   >
                     Ver Todos os Alertas
                   </button>
@@ -1054,71 +1050,71 @@ export default function App() {
           )}
 
           {view === 'clients' && (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {/* Quick Action at Top for Mobile Access */}
               <button 
                 onClick={() => { setEditingClient(null); setView('new-client'); }}
-                className="w-full bg-primary p-4 rounded-2xl flex items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/10"
+                className="w-full bg-primary p-3 rounded-xl flex items-center justify-center gap-2 text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/10"
               >
-                <Plus className="w-5 h-5" />
-                <span className="font-bold">Nova Troca de Óleo</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span className="font-bold text-xs">Novo Registro</span>
               </button>
 
-              <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                <h2 className="text-2xl font-bold">Clientes e Trocas</h2>
-                <div className="relative w-full md:w-72">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <div className="flex flex-col md:flex-row gap-2 items-center justify-between">
+                <h2 className="text-lg font-bold">Clientes</h2>
+                <div className="relative w-full md:w-64">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
                   <input 
                     type="text" 
-                    placeholder="Buscar cliente ou moto..."
+                    placeholder="Buscar..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-slate-800 border-none rounded-xl pl-10 pr-4 py-2 focus:ring-2 focus:ring-primary"
+                    className="w-full bg-slate-800/40 border border-slate-700/50 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:ring-1 focus:ring-primary outline-none"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 {filteredClients.map(client => (
-                  <div key={client.id} className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 space-y-4 relative overflow-hidden">
+                  <div key={client.id} className="bg-slate-800/30 p-3 rounded-xl border border-slate-700/40 space-y-2.5 relative overflow-hidden">
                     <div className={cn(
-                      "absolute top-0 right-0 w-1 h-full",
+                      "absolute top-0 right-0 w-0.5 h-full opacity-50",
                       client.status === 'OK' ? 'bg-emerald-500' : 
                       client.status === 'WARNING' ? 'bg-yellow-500' : 'bg-red-500'
                     )} />
                     
                     <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div className={cn(
-                          "w-2 h-2 rounded-full",
+                          "w-1 h-1 rounded-full",
                           client.status === 'OK' ? 'bg-emerald-500' : 
                           client.status === 'WARNING' ? 'bg-yellow-500' : 'bg-red-500'
                         )} />
                         <div>
-                          <h3 className="font-bold text-lg">{client.name}</h3>
-                          <p className="text-sm text-slate-400">{client.bikeModel}</p>
+                          <h3 className="font-bold text-sm leading-tight">{client.name}</h3>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{client.bikeModel}</p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-1">
                         <button 
                           onClick={() => handleAddMaintenance(client)}
-                          className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
-                          title="Manutenção Realizada"
+                          className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
+                          title="Concluir"
                         >
-                          <CheckCircle className="w-5 h-5" />
+                          <CheckCircle className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={() => sendWhatsApp(client)}
-                          className="p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                          title="Enviar Alerta"
+                          className="p-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                          title="Avisar"
                         >
-                          <MessageSquare className="w-5 h-5" />
+                          <MessageSquare className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={() => { setEditingClient(client); setView('new-client'); }}
-                          className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
+                          className="p-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
                         >
-                          <ChevronRight className="w-5 h-5" />
+                          <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={() => {
@@ -1129,37 +1125,34 @@ export default function App() {
                             }
                           }}
                           className={cn(
-                            "p-2 rounded-lg transition-colors",
+                            "p-1.5 rounded-lg transition-colors",
                             deleteConfirm?.id === client.id 
                               ? "bg-red-500 text-white animate-pulse" 
                               : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
                           )}
-                          title={deleteConfirm?.id === client.id ? "Confirmar Exclusão" : "Excluir Cliente"}
                         >
-                          {deleteConfirm?.id === client.id ? <CheckCircle className="w-5 h-5" /> : <Trash2 className="w-5 h-5" />}
+                          {deleteConfirm?.id === client.id ? <CheckCircle className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-700">
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-700/20">
                       <div>
-                        <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Última</p>
-                        <p className="text-sm font-medium">{format(parseISO(client.lastMaintenanceDate), 'dd/MM/yyyy')}</p>
+                        <p className="text-[8px] uppercase font-bold text-slate-500 tracking-widest">Anterior</p>
+                        <p className="text-[10px] font-medium">{format(parseISO(client.lastMaintenanceDate), 'dd/MM/yyyy')}</p>
                       </div>
                       <div>
                         <p className={cn(
-                          "text-[10px] uppercase font-bold tracking-widest",
+                          "text-[8px] uppercase font-bold tracking-widest",
                           client.status === 'OK' ? 'text-slate-500' : 
                           client.status === 'WARNING' ? 'text-yellow-500' : 'text-red-500'
                         )}>Próxima</p>
                         <p className={cn(
-                          "text-sm font-bold",
+                          "text-[10px] font-bold",
                           client.status === 'OK' ? 'text-white' : 
                           client.status === 'WARNING' ? 'text-yellow-500' : 'text-red-500'
                         )}>
                           {format(parseISO(client.nextMaintenanceDate), 'dd/MM/yyyy')}
-                          {client.status === 'OVERDUE' && " (Vencida)"}
-                          {client.status === 'WARNING' && " (Em breve)"}
                         </p>
                       </div>
                     </div>
@@ -1170,25 +1163,25 @@ export default function App() {
           )}
 
           {view === 'history' && (
-            <div className="space-y-8">
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold">Histórico de Trocas</h2>
-                <div className="space-y-4">
+            <div className="space-y-5">
+              <div className="space-y-3">
+                <h2 className="text-lg font-bold">Histórico</h2>
+                <div className="space-y-1.5">
                   {maintenances.map(record => (
-                    <div key={record.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="bg-primary/10 p-3 rounded-xl">
-                          <History className="w-5 h-5 text-primary" />
+                    <div key={record.id} className="bg-slate-800/30 p-2.5 rounded-xl border border-slate-700/40 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="bg-primary/10 p-1.5 rounded-lg">
+                          <History className="w-3.5 h-3.5 text-primary" />
                         </div>
                         <div>
-                          <p className="font-bold">{record.clientName}</p>
-                          <p className="text-xs text-slate-500">{record.bikeModel} • {record.oilType}</p>
+                          <p className="font-bold text-xs leading-tight">{record.clientName}</p>
+                          <p className="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">{record.bikeModel} • {record.oilType}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="text-right">
-                          <p className="font-bold text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
-                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Realizada</p>
+                          <p className="font-bold text-[10px] text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
+                          <p className="text-[7px] text-slate-500 uppercase font-bold tracking-widest">Data</p>
                         </div>
                         <button 
                           onClick={() => {
@@ -1199,14 +1192,13 @@ export default function App() {
                             }
                           }}
                           className={cn(
-                            "p-2 rounded-lg transition-colors ml-2",
+                            "p-1.5 rounded-lg transition-colors ml-1",
                             deleteConfirm?.id === record.id 
                               ? "bg-red-500 text-white animate-pulse" 
                               : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
                           )}
-                          title={deleteConfirm?.id === record.id ? "Confirmar Exclusão" : "Excluir Registro"}
                         >
-                          {deleteConfirm?.id === record.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                          {deleteConfirm?.id === record.id ? <CheckCircle className="w-3 h-3" /> : <Trash2 className="w-3 h-3" />}
                         </button>
                       </div>
                     </div>
@@ -1214,37 +1206,33 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-6 pt-8 border-t border-slate-800">
-                <h2 className="text-2xl font-bold flex items-center gap-2">
-                  <Bell className="w-6 h-6 text-primary" />
+              <div className="space-y-3 pt-5 border-t border-slate-800/50">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-primary" />
                   Logs de Alertas
                 </h2>
-                <div className="space-y-4">
+                <div className="space-y-1.5">
                   {messageLogs.length === 0 ? (
-                    <div className="text-center py-12 bg-slate-800/30 rounded-3xl border border-dashed border-slate-700">
-                      <AlertCircle className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                      <p className="text-slate-500">Nenhum alerta enviado ainda.</p>
+                    <div className="text-center py-6 bg-slate-800/10 rounded-xl border border-dashed border-slate-700/30">
+                      <p className="text-[10px] text-slate-600">Nenhum alerta enviado.</p>
                     </div>
                   ) : (
                     messageLogs.map(log => (
-                      <div key={log.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="bg-emerald-500/10 p-3 rounded-xl">
-                            <MessageSquare className="w-5 h-5 text-emerald-500" />
+                      <div key={log.id} className="bg-slate-800/30 p-2.5 rounded-xl border border-slate-700/40 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="bg-emerald-500/10 p-1.5 rounded-lg">
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
                           </div>
                           <div>
-                            <p className="font-bold">{log.clientName}</p>
-                            <p className="text-xs text-slate-500">{log.bikeModel}</p>
+                            <p className="font-bold text-xs leading-tight">{log.clientName}</p>
+                            <p className="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">{log.bikeModel}</p>
                           </div>
                         </div>
-                          <div className="text-right flex items-center gap-4">
+                          <div className="text-right flex items-center gap-2">
                             <div className="text-right">
-                              <p className="font-bold text-white">{format(parseISO(log.createdAt), 'dd/MM/yyyy HH:mm')}</p>
-                              <span className={cn(
-                                "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-widest",
-                                log.status === 'opened_whatsapp' ? "bg-emerald-500/20 text-emerald-500" : "bg-slate-500/20 text-slate-500"
-                              )}>
-                                {log.status === 'opened_whatsapp' ? 'WhatsApp Aberto' : log.status}
+                              <p className="font-bold text-[9px] text-white">{format(parseISO(log.createdAt), 'dd/MM HH:mm')}</p>
+                              <span className="text-[7px] text-emerald-500 font-bold uppercase tracking-widest">
+                                Aberto
                               </span>
                             </div>
                             <button 
@@ -1256,14 +1244,13 @@ export default function App() {
                                 }
                               }}
                               className={cn(
-                                "p-2 rounded-lg transition-colors",
+                                "p-1.5 rounded-lg transition-colors",
                                 deleteConfirm?.id === log.id 
                                   ? "bg-red-500 text-white animate-pulse" 
                                   : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
                               )}
-                              title={deleteConfirm?.id === log.id ? "Confirmar Exclusão" : "Excluir Log"}
                             >
-                              {deleteConfirm?.id === log.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                              {deleteConfirm?.id === log.id ? <CheckCircle className="w-3 h-3" /> : <Trash2 className="w-3 h-3" />}
                             </button>
                           </div>
                       </div>
@@ -1275,41 +1262,40 @@ export default function App() {
           )}
 
           {view === 'warranties' && (
-            <div className="space-y-6">
-              <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                <h2 className="text-2xl font-bold">Garantias de Serviço</h2>
+            <div className="space-y-3">
+              <div className="flex flex-col md:flex-row gap-2 items-center justify-between">
+                <h2 className="text-lg font-bold">Garantias</h2>
                 <button 
                   onClick={() => { setEditingWarranty(null); setView('new-warranty'); }}
-                  className="bg-primary px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-primary/90 transition-all"
+                  className="w-full md:w-auto bg-primary px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all text-xs"
                 >
-                  <Plus className="w-5 h-5" /> Nova Garantia
+                  <Plus className="w-3.5 h-3.5" /> Nova Garantia
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 {warranties.map(warranty => (
-                  <div key={warranty.id} className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 space-y-4">
+                  <div key={warranty.id} className="bg-slate-800/30 p-3.5 rounded-xl border border-slate-700/40 space-y-2.5">
                     <div className="flex justify-between items-start">
                       <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <ShieldCheck className="w-5 h-5 text-primary" />
-                          <h3 className="font-bold text-lg">{warranty.clientName}</h3>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                          <h3 className="font-bold text-sm leading-tight">{warranty.clientName}</h3>
                         </div>
-                        <p className="text-sm text-slate-400">{warranty.serviceType}</p>
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{warranty.serviceType}</p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-1">
                         <button 
                           onClick={() => generateWarrantyPDF(warranty)}
-                          className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
-                          title="Baixar PDF"
+                          className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-colors"
                         >
-                          <Download className="w-5 h-5" />
+                          <Download className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={() => { setEditingWarranty(warranty); setView('new-warranty'); }}
-                          className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
+                          className="p-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
                         >
-                          <ChevronRight className="w-5 h-5" />
+                          <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={() => {
@@ -1320,27 +1306,26 @@ export default function App() {
                             }
                           }}
                           className={cn(
-                            "p-2 rounded-lg transition-colors",
+                            "p-1.5 rounded-lg transition-colors",
                             deleteConfirm?.id === warranty.id 
                               ? "bg-red-500 text-white animate-pulse" 
                               : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
                           )}
-                          title={deleteConfirm?.id === warranty.id ? "Confirmar Exclusão" : "Excluir Garantia"}
                         >
-                          {deleteConfirm?.id === warranty.id ? <CheckCircle className="w-5 h-5" /> : <Trash2 className="w-5 h-5" />}
+                          {deleteConfirm?.id === warranty.id ? <CheckCircle className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-700">
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-700/20">
                       <div>
-                        <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Nº Garantia</p>
-                        <p className="text-sm font-medium">{warranty.warrantyNumber}</p>
+                        <p className="text-[8px] uppercase font-bold text-slate-500 tracking-widest">Nº</p>
+                        <p className="text-[10px] font-medium">{warranty.warrantyNumber}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Vencimento</p>
+                        <p className="text-[8px] uppercase font-bold text-slate-500 tracking-widest">Vencimento</p>
                         <p className={cn(
-                          "text-sm font-bold",
+                          "text-[10px] font-bold",
                           isBefore(parseISO(warranty.expiryDate), new Date()) ? "text-red-500" : "text-emerald-500"
                         )}>
                           {format(parseISO(warranty.expiryDate), 'dd/MM/yyyy')}
@@ -1349,12 +1334,10 @@ export default function App() {
                     </div>
 
                     {warranty.serviceDescription && (
-                      <div className="pt-3 border-t border-slate-700/50">
-                        <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Descrição</p>
-                        <p className="text-xs text-slate-400 whitespace-pre-wrap break-words">{warranty.serviceDescription}</p>
+                      <div className="pt-2 border-t border-slate-700/10">
+                        <p className="text-[10px] text-slate-400 leading-tight line-clamp-1 italic">"{warranty.serviceDescription}"</p>
                       </div>
                     )}
-
                   </div>
                 ))}
               </div>
@@ -1362,12 +1345,12 @@ export default function App() {
           )}
 
           {view === 'new-warranty' && (
-            <div className="max-w-2xl mx-auto space-y-6">
-              <div className="flex items-center gap-4">
-                <button onClick={() => setView('warranties')} className="p-2 rounded-full hover:bg-slate-800">
-                  <ArrowLeft className="w-6 h-6" />
+            <div className="max-w-xl mx-auto space-y-4">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setView('warranties')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
-                <h2 className="text-2xl font-bold">{editingWarranty ? 'Editar Garantia' : 'Nova Garantia de Serviço'}</h2>
+                <h2 className="text-xl font-bold">{editingWarranty ? 'Editar Garantia' : 'Nova Garantia'}</h2>
               </div>
 
               <form 
@@ -1384,20 +1367,20 @@ export default function App() {
                     clientPhone: formData.get('clientPhone') as string
                   });
                 }}
-                className="bg-slate-800/50 p-6 rounded-3xl border border-slate-700 space-y-6"
+                className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-5"
               >
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente:</label>
-                    <input name="clientName" defaultValue={editingWarranty?.clientName} required placeholder="Ex: João Silva" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente</label>
+                    <input name="clientName" defaultValue={editingWarranty?.clientName} required placeholder="Ex: João Silva" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="flex justify-between items-center px-1">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Tipo de Serviço:</label>
-                      <button type="button" onClick={() => setView('settings')} className="text-[10px] text-primary hover:underline">Gerenciar Lista</button>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tipo de Serviço</label>
+                      <button type="button" onClick={() => setView('settings')} className="text-[9px] text-primary hover:underline font-bold uppercase tracking-tighter">Gerenciar Lista</button>
                     </div>
-                    <select name="serviceType" defaultValue={editingWarranty?.serviceType || ""} required className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary">
+                    <select name="serviceType" defaultValue={editingWarranty?.serviceType || ""} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
                       <option value="" disabled>Selecione um serviço</option>
                       {editingWarranty?.serviceType && !settings?.warrantyCategories?.includes(editingWarranty.serviceType) && (
                         <option value={editingWarranty.serviceType}>{editingWarranty.serviceType}</option>
@@ -1408,50 +1391,50 @@ export default function App() {
                     </select>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Descrição do Serviço:</label>
-                    <textarea name="serviceDescription" defaultValue={editingWarranty?.serviceDescription} placeholder="Detalhes adicionais do serviço" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 min-h-[100px] focus:ring-primary" />
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Descrição do Serviço</label>
+                    <textarea name="serviceDescription" defaultValue={editingWarranty?.serviceDescription} placeholder="Detalhes adicionais do serviço" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm min-h-[80px] focus:ring-1 focus:ring-primary outline-none" />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Valor do Serviço (R$):</label>
-                      <input name="serviceValue" type="number" step="0.01" defaultValue={editingWarranty?.serviceValue || 0} className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Valor (R$)</label>
+                      <input name="serviceValue" type="number" step="0.01" defaultValue={editingWarranty?.serviceValue || 0} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Data do Serviço:</label>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data</label>
                       <input 
                         name="serviceDate" 
                         type="date" 
                         defaultValue={editingWarranty ? format(parseISO(editingWarranty.serviceDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')} 
                         required 
-                        className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" 
+                        className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
                       />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Duração da Garantia (meses):</label>
-                      <select name="durationMonths" defaultValue={editingWarranty?.durationMonths || 3} className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Duração (meses)</label>
+                      <select name="durationMonths" defaultValue={editingWarranty?.durationMonths || 3} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
                         <option value={1}>1 mês</option>
                         <option value={3}>3 meses</option>
                         <option value={6}>6 meses</option>
                         <option value={12}>12 meses</option>
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Telefone do Cliente:</label>
-                      <input name="clientPhone" defaultValue={editingWarranty?.clientPhone} placeholder="(11) 98765-4321" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Telefone</label>
+                      <input name="clientPhone" defaultValue={editingWarranty?.clientPhone} placeholder="(11) 98765-4321" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                     </div>
                   </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
-                  <button type="submit" className="flex-1 bg-primary py-4 rounded-2xl font-bold hover:bg-primary/90 transition-all">
-                    {editingWarranty ? 'Salvar Alterações' : 'Adicionar Garantia'}
+                <div className="flex gap-3 pt-2">
+                  <button type="submit" className="flex-1 bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all text-sm shadow-lg shadow-primary/20">
+                    {editingWarranty ? 'Salvar' : 'Adicionar'}
                   </button>
-                  <button type="button" onClick={() => setView('warranties')} className="px-8 bg-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-600 transition-all">
+                  <button type="button" onClick={() => setView('warranties')} className="px-6 bg-slate-700/50 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all text-sm">
                     Cancelar
                   </button>
                 </div>
@@ -1460,42 +1443,37 @@ export default function App() {
           )}
 
           {view === 'settings' && (
-            <div className="space-y-6 max-w-2xl mx-auto">
-              <h2 className="text-2xl font-bold">Configurações</h2>
+            <div className="space-y-4 max-w-2xl mx-auto">
+              <h2 className="text-xl font-bold">Configurações</h2>
               
               {/* Subscription Status (for non-admins) */}
               {userProfile?.role !== 'admin' && userProfile?.subscriptionExpiresAt && (
                 <div className={cn(
-                  "p-6 rounded-2xl border flex items-center justify-between",
+                  "p-4 rounded-xl border flex items-center justify-between",
                   isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) 
                     ? "bg-red-500/10 border-red-500/30 text-red-500" 
                     : "bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
                 )}>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <div className={cn(
-                      "p-3 rounded-xl",
+                      "p-2 rounded-lg",
                       isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) ? "bg-red-500/20" : "bg-emerald-500/20"
                     )}>
-                      <ShieldCheck className="w-6 h-6" />
+                      <ShieldCheck className="w-5 h-5" />
                     </div>
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-widest opacity-70">Sua Assinatura</p>
-                      <p className="text-lg font-bold">
+                      <p className="text-[9px] font-bold uppercase tracking-widest opacity-70">Sua Assinatura</p>
+                      <p className="text-sm font-bold">
                         {isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) 
                           ? "Expirada" 
                           : `Ativa até ${format(parseISO(userProfile.subscriptionExpiresAt), 'dd/MM/yyyy')}`}
-                      </p>
-                      <p className="text-xs opacity-60">
-                        {isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) 
-                          ? "Renove para continuar usando todos os recursos." 
-                          : "Seu acesso está garantido até a data acima."}
                       </p>
                     </div>
                   </div>
                   {isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date()) && (
                     <button 
                       onClick={() => window.open('https://wa.me/5511999999999?text=Olá, gostaria de renovar minha assinatura do MotoFix', '_blank')}
-                      className="bg-red-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+                      className="bg-red-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-600 transition-all text-xs"
                     >
                       Renovar
                     </button>
@@ -1503,46 +1481,46 @@ export default function App() {
                 </div>
               )}
               
-              <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <Bike className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold">Perfil da Empresa</h3>
+              <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Bike className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-bold">Perfil da Empresa</h3>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Nome da Empresa</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome da Empresa</label>
                     <input 
                       value={settings?.businessName || ''}
                       onChange={(e) => setSettings(s => s ? { ...s, businessName: e.target.value } : null)}
                       placeholder="Ex: MotoFix Centro Automotivo"
-                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp da Empresa</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp da Empresa</label>
                     <input 
                       value={settings?.businessPhone || ''}
                       onChange={(e) => setSettings(s => s ? { ...s, businessPhone: e.target.value } : null)}
                       placeholder="Ex: (69) 99999-9999"
-                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Instagram (@)</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Instagram (@)</label>
                     <input 
                       value={settings?.businessInstagram || ''}
                       onChange={(e) => setSettings(s => s ? { ...s, businessInstagram: e.target.value } : null)}
                       placeholder="Ex: @motofix_oficial"
-                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Endereço</label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Endereço</label>
                     <input 
                       value={settings?.businessAddress || ''}
                       onChange={(e) => setSettings(s => s ? { ...s, businessAddress: e.target.value } : null)}
                       placeholder="Rua Exemplo, 123 - Centro"
-                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary"
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                     />
                   </div>
                 </div>
@@ -1556,22 +1534,22 @@ export default function App() {
                       setTimeout(() => setSaveMessage(null), 3000);
                     }
                   }}
-                  className="w-full bg-emerald-500/10 text-emerald-500 py-3 rounded-xl font-bold hover:bg-emerald-500/20 transition-all border border-emerald-500/30"
+                  className="w-full bg-emerald-500/10 text-emerald-500 py-2.5 rounded-lg font-bold hover:bg-emerald-500/20 transition-all border border-emerald-500/20 text-xs"
                 >
                   Salvar Perfil da Empresa
                 </button>
               </div>
 
-              <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <MessageSquare className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold">Template do WhatsApp</h3>
+              <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-bold">Template do WhatsApp</h3>
                 </div>
-                <p className="text-sm text-slate-400">Use as tags: <code>{'{client}'}</code>, <code>{'{bike}'}</code>, <code>{'{date}'}</code></p>
+                <p className="text-[10px] text-slate-400">Use as tags: <code>{'{client}'}</code>, <code>{'{bike}'}</code>, <code>{'{date}'}</code></p>
                 <textarea 
                   value={settings?.whatsappTemplate || ''}
                   onChange={(e) => setSettings(s => s ? { ...s, whatsappTemplate: e.target.value } : null)}
-                  className="w-full bg-slate-900 border-slate-700 rounded-xl p-4 min-h-[120px] focus:ring-primary"
+                  className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-3 min-h-[100px] text-sm focus:ring-1 focus:ring-primary outline-none"
                 />
                 <button 
                   onClick={async () => {
@@ -1588,12 +1566,12 @@ export default function App() {
                       }
                     }
                   }}
-                  className="w-full bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all"
+                  className="w-full bg-primary py-2.5 rounded-lg font-bold hover:bg-primary/90 transition-all text-sm"
                 >
                   Salvar Configurações
                 </button>
                 {saveMessage && (
-                  <p className="text-emerald-500 text-center text-sm font-bold animate-bounce">{saveMessage}</p>
+                  <p className="text-emerald-500 text-center text-[10px] font-bold animate-bounce">{saveMessage}</p>
                 )}
               </div>
 
@@ -1713,12 +1691,12 @@ export default function App() {
           )}
 
           {view === 'new-client' && (
-            <div className="max-w-2xl mx-auto space-y-6">
-              <div className="flex items-center gap-4">
-                <button onClick={() => setView('clients')} className="p-2 rounded-full hover:bg-slate-800">
-                  <ArrowLeft className="w-6 h-6" />
+            <div className="max-w-xl mx-auto space-y-4">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setView('clients')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
-                <h2 className="text-2xl font-bold">{editingClient ? 'Editar Cliente' : 'Novo Registro'}</h2>
+                <h2 className="text-xl font-bold">{editingClient ? 'Editar Cliente' : 'Novo Registro'}</h2>
               </div>
 
               <form 
@@ -1734,27 +1712,27 @@ export default function App() {
                     lastMaintenanceDate: formData.get('lastMaintenanceDate') ? `${formData.get('lastMaintenanceDate')}T12:00:00Z` : undefined
                   });
                 }}
-                className="bg-slate-800/50 p-6 rounded-3xl border border-slate-700 space-y-6"
+                className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-5"
               >
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente</label>
-                    <input name="name" defaultValue={editingClient?.name} required className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente</label>
+                    <input name="name" defaultValue={editingClient?.name} required placeholder="Ex: João Silva" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Contato (WhatsApp)</label>
-                    <input name="contact" defaultValue={editingClient?.contact} required placeholder="Ex: 5511999999999" className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
+                    <input name="contact" defaultValue={editingClient?.contact} required placeholder="Ex: 5511999999999" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Modelo da Moto</label>
-                    <input name="bikeModel" defaultValue={editingClient?.bikeModel} required className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Modelo da Moto</label>
+                    <input name="bikeModel" defaultValue={editingClient?.bikeModel} required placeholder="Ex: Honda CG 160" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="flex justify-between items-center px-1">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Tipo de Óleo</label>
-                      <button type="button" onClick={() => setView('settings')} className="text-[10px] text-primary hover:underline">Gerenciar Lista</button>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tipo de Óleo</label>
+                      <button type="button" onClick={() => setView('settings')} className="text-[9px] text-primary hover:underline font-bold uppercase tracking-tighter">Gerenciar Lista</button>
                     </div>
-                    <select name="oilType" defaultValue={editingClient?.oilType} className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary">
+                    <select name="oilType" defaultValue={editingClient?.oilType} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
                       <option value="">Selecione o óleo</option>
                       {editingClient?.oilType && !settings?.oilTypes?.includes(editingClient.oilType) && (
                         <option value={editingClient.oilType}>{editingClient.oilType}</option>
@@ -1764,27 +1742,27 @@ export default function App() {
                       ))}
                     </select>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Data da Manutenção</label>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data da Manutenção</label>
                     <input 
                       name="lastMaintenanceDate" 
                       type="date" 
                       defaultValue={editingClient ? format(parseISO(editingClient.lastMaintenanceDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')} 
                       required 
-                      className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Recorrência (Dias)</label>
-                    <input name="recurrenceDays" type="number" defaultValue={editingClient?.recurrenceDays || 29} required className="w-full bg-slate-900 border-slate-700 rounded-xl p-3 focus:ring-primary" />
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Recorrência (Dias)</label>
+                    <input name="recurrenceDays" type="number" defaultValue={editingClient?.recurrenceDays || 29} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
-                  <button type="submit" className="flex-1 bg-primary py-4 rounded-2xl font-bold hover:bg-primary/90 transition-all">
-                    {editingClient ? 'Salvar Alterações' : 'Cadastrar Manutenção'}
+                <div className="flex gap-3 pt-2">
+                  <button type="submit" className="flex-1 bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all text-sm shadow-lg shadow-primary/20">
+                    {editingClient ? 'Salvar' : 'Cadastrar'}
                   </button>
-                  <button type="button" onClick={() => setView('clients')} className="px-8 bg-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-600 transition-all">
+                  <button type="button" onClick={() => setView('clients')} className="px-6 bg-slate-700/50 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all text-sm">
                     Cancelar
                   </button>
                 </div>
@@ -1905,52 +1883,52 @@ export default function App() {
         </main>
 
         {/* Bottom Nav */}
-        <nav className="fixed bottom-0 left-0 right-0 bg-background-dark/90 backdrop-blur-xl border-t border-slate-800 p-4 z-50">
+        <nav className="fixed bottom-0 left-0 right-0 bg-background-dark/95 backdrop-blur-xl border-t border-slate-800/50 px-6 py-2 z-50">
           <div className="max-w-md mx-auto flex justify-between items-center">
             <button 
               onClick={() => setView('dashboard')}
-              className={cn("flex flex-col items-center gap-1 transition-colors", view === 'dashboard' ? 'text-primary' : 'text-slate-500')}
+              className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'dashboard' ? 'text-primary scale-110' : 'text-slate-500')}
             >
-              <LayoutDashboard className="w-6 h-6" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">Início</span>
+              <LayoutDashboard className="w-5 h-5" />
+              <span className="text-[9px] font-bold uppercase tracking-tighter">Início</span>
             </button>
             <button 
               onClick={() => setView('clients')}
-              className={cn("flex flex-col items-center gap-1 transition-colors", view === 'clients' ? 'text-primary' : 'text-slate-500')}
+              className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'clients' ? 'text-primary scale-110' : 'text-slate-500')}
             >
-              <Users className="w-6 h-6" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">Trocas</span>
+              <Users className="w-5 h-5" />
+              <span className="text-[9px] font-bold uppercase tracking-tighter">Trocas</span>
             </button>
             {userProfile?.role === 'admin' ? (
               <button 
                 onClick={() => setView('admin')}
-                className={cn("flex flex-col items-center gap-1 transition-colors", view === 'admin' ? 'text-primary' : 'text-slate-500')}
+                className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'admin' ? 'text-primary scale-110' : 'text-slate-500')}
               >
-                <Shield className="w-6 h-6" />
-                <span className="text-[10px] font-bold uppercase tracking-tighter">Admin</span>
+                <Shield className="w-5 h-5" />
+                <span className="text-[9px] font-bold uppercase tracking-tighter">Admin</span>
               </button>
             ) : (
               <button 
                 onClick={() => setView('warranties')}
-                className={cn("flex flex-col items-center gap-1 transition-colors", view === 'warranties' ? 'text-primary' : 'text-slate-500')}
+                className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'warranties' ? 'text-primary scale-110' : 'text-slate-500')}
               >
-                <ShieldCheck className="w-6 h-6" />
-                <span className="text-[10px] font-bold uppercase tracking-tighter">Garantias</span>
+                <ShieldCheck className="w-5 h-5" />
+                <span className="text-[9px] font-bold uppercase tracking-tighter">Garantias</span>
               </button>
             )}
             <button 
               onClick={() => setView('history')}
-              className={cn("flex flex-col items-center gap-1 transition-colors", view === 'history' ? 'text-primary' : 'text-slate-500')}
+              className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'history' ? 'text-primary scale-110' : 'text-slate-500')}
             >
-              <History className="w-6 h-6" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">Histórico</span>
+              <History className="w-5 h-5" />
+              <span className="text-[9px] font-bold uppercase tracking-tighter">Histórico</span>
             </button>
             <button 
               onClick={() => setView('settings')}
-              className={cn("flex flex-col items-center gap-1 transition-colors", view === 'settings' ? 'text-primary' : 'text-slate-500')}
+              className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'settings' ? 'text-primary scale-110' : 'text-slate-500')}
             >
-              <SettingsIcon className="w-6 h-6" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">Ajustes</span>
+              <SettingsIcon className="w-5 h-5" />
+              <span className="text-[9px] font-bold uppercase tracking-tighter">Ajustes</span>
             </button>
           </div>
         </nav>
