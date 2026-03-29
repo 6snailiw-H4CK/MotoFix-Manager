@@ -3,7 +3,6 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import whatsappRoutes from "./worker/routes/whatsappRoutes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,9 +13,6 @@ async function startServer() {
 
   // Middleware para JSON
   app.use(express.json());
-
-  // Rotas da API do WhatsApp
-  app.use("/api/whatsapp", whatsappRoutes);
 
   // Rota de saúde
   app.get("/api/health", (req, res) => {

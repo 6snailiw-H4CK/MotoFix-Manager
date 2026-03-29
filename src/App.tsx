@@ -78,7 +78,6 @@ import { Client, MaintenanceRecord, MaintenanceStatus, Settings, Warranty, UserP
 import { AlertService } from './services/alertService';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import WhatsAppConnection from './components/WhatsAppConnection';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -762,15 +761,17 @@ export default function App() {
       // 2. Validar telefone e criar URL
       const url = AlertService.createWhatsAppUrl(client, message);
       
-      // 3. Registrar a tentativa (status 'opened_whatsapp')
+      // 3. Abrir WhatsApp IMEDIATAMENTE (antes de qualquer await)
+      // Isso evita que o iOS bloqueie a abertura da aba por achar que é um pop-up indesejado.
+      window.open(url, '_blank');
+      
+      // 4. Registrar a tentativa em segundo plano (status 'opened_whatsapp')
       const result = await AlertService.registerManualReminderAttempt(db, user.uid, client, message);
       
       if (result.success) {
-        // 4. Abrir WhatsApp
-        window.open(url, '_blank');
         setToast({ message: "WhatsApp aberto e tentativa registrada.", type: 'success' });
       } else {
-        throw new Error("Falha ao registrar log de alerta no banco de dados.");
+        console.warn("Falha ao registrar log de alerta no banco de dados.");
       }
     } catch (error: any) {
       console.error("Erro ao enviar lembrete:", error);
@@ -1445,13 +1446,6 @@ export default function App() {
             <div className="space-y-6 max-w-2xl mx-auto">
               <h2 className="text-2xl font-bold">Configurações</h2>
               
-              {/* WhatsApp Connection Section */}
-              {user && (
-                <div className="mb-6">
-                  <WhatsAppConnection userId={user.uid} />
-                </div>
-              )}
-
               {/* Subscription Status (for non-admins) */}
               {userProfile?.role !== 'admin' && userProfile?.subscriptionExpiresAt && (
                 <div className={cn(
