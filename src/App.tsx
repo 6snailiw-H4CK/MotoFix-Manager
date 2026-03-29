@@ -381,8 +381,9 @@ export default function App() {
         };
         setSettings(updatedSettings);
         
-        // If fields were missing, update the doc
-        if (!data.oilTypes || !data.warrantyCategories || data.isProfileComplete === undefined) {
+        // If fields were missing, update the doc only if they are actually missing to avoid loops
+        const needsUpdate = !data.oilTypes || !data.warrantyCategories || data.isProfileComplete === undefined;
+        if (needsUpdate) {
           updateDoc(settingsDoc, {
             oilTypes: updatedSettings.oilTypes,
             warrantyCategories: updatedSettings.warrantyCategories,
@@ -443,18 +444,27 @@ export default function App() {
     return 'OK';
   };
 
-  // Update statuses periodically
+  // Update statuses periodically without infinite loops
   useEffect(() => {
-    const interval = setInterval(() => {
-      clients.forEach(async (client) => {
+    const checkStatuses = async () => {
+      // Usamos o estado atual de clients de forma segura
+      for (const client of clients) {
         const currentStatus = getStatus(client.nextMaintenanceDate);
         if (currentStatus !== client.status) {
-          await updateDoc(doc(db, 'clients', client.id), { status: currentStatus });
+          try {
+            await updateDoc(doc(db, 'clients', client.id), { status: currentStatus });
+          } catch (e) {
+            console.error("Erro ao atualizar status do cliente", client.id, e);
+          }
         }
-      });
-    }, 30000); // Every 30 seconds as requested
+      }
+    };
+
+    // Executa uma vez ao carregar e depois a cada 5 minutos (menos agressivo para performance)
+    checkStatuses();
+    const interval = setInterval(checkStatuses, 300000); 
     return () => clearInterval(interval);
-  }, [clients]);
+  }, [clients.length]); // Somente re-executa se a quantidade de clientes mudar
 
   // --- Handlers ---
 
@@ -480,7 +490,8 @@ export default function App() {
         lastMaintenanceDate: date,
         nextMaintenanceDate: nextDate,
         status: getStatus(nextDate),
-        notificacao_enviada: false
+        notificacao_enviada: false,
+        notificacaoStatus: 'pendente'
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'maintenances/clients');
@@ -502,6 +513,7 @@ export default function App() {
       recurrenceDays: recurrence,
       status: getStatus(nextDate),
       notificacao_enviada: clientData.notificacao_enviada || false,
+      notificacaoStatus: clientData.notificacaoStatus || 'pendente',
       lastAlertDate: clientData.lastAlertDate || '',
       createdAt: clientData.createdAt || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     };
@@ -751,28 +763,33 @@ export default function App() {
     }
   };
 
-  const sendWhatsApp = async (client: Client) => {
+  const sendWhatsApp = (client: Client) => {
     if (!settings || !user) return;
     
     try {
-      // 1. Montar a mensagem usando o template centralizado
+      // 1. Montar a mensagem e URL de forma SÍNCRONA
+      // Isso é CRÍTICO para o iOS não bloquear o pop-up
       const message = AlertService.buildReminderMessage(settings.whatsappTemplate, client);
-      
-      // 2. Validar telefone e criar URL
       const url = AlertService.createWhatsAppUrl(client, message);
       
-      // 3. Abrir WhatsApp IMEDIATAMENTE (antes de qualquer await)
-      // Isso evita que o iOS bloqueie a abertura da aba por achar que é um pop-up indesejado.
+      // 2. Abrir WhatsApp IMEDIATAMENTE
+      // O Safari exige que window.open seja disparado diretamente pelo evento de clique
       window.open(url, '_blank');
       
-      // 4. Registrar a tentativa em segundo plano (status 'opened_whatsapp')
-      const result = await AlertService.registerManualReminderAttempt(db, user.uid, client, message);
-      
-      if (result.success) {
-        setToast({ message: "WhatsApp aberto e tentativa registrada.", type: 'success' });
-      } else {
-        console.warn("Falha ao registrar log de alerta no banco de dados.");
-      }
+      // 3. Registrar a tentativa e atualizar status em segundo plano (async)
+      // Não usamos 'await' aqui para não bloquear a UI ou causar comportamentos estranhos
+      AlertService.registerManualReminderAttempt(db, user.uid, client, message)
+        .then(result => {
+          if (result.success) {
+            setToast({ message: "WhatsApp aberto e status atualizado para 'Concluído'.", type: 'success' });
+          } else {
+            console.warn("Falha ao registrar log de alerta no banco de dados.");
+          }
+        })
+        .catch(err => {
+          console.error("Erro ao registrar log:", err);
+        });
+
     } catch (error: any) {
       console.error("Erro ao enviar lembrete:", error);
       setToast({ message: error.message || "Erro inesperado ao processar o lembrete.", type: 'error' });
@@ -788,7 +805,7 @@ export default function App() {
 
   const overdueClients = clients.filter(c => c.status === 'OVERDUE');
   const warningClients = clients.filter(c => c.status === 'WARNING');
-  const pendingAlerts = AlertService.getPendingAlerts(clients);
+  const pendingAlerts = AlertService.getDailyPendingAlerts(clients);
 
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthScreen />;
@@ -868,7 +885,7 @@ export default function App() {
         <main className="max-w-5xl mx-auto p-4 space-y-6">
           {view === 'dashboard' && (
             <div className="space-y-8">
-              {/* Daily Alerts Section */}
+              {/* Painel de Envios do Dia */}
               {pendingAlerts.length > 0 && (
                 <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 space-y-4">
                   <div className="flex items-center justify-between">
@@ -877,8 +894,8 @@ export default function App() {
                         <Bell className="w-5 h-5 text-primary animate-bounce" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-lg">Alertas de Hoje</h3>
-                        <p className="text-sm text-slate-400">{pendingAlerts.length} clientes precisam de aviso</p>
+                        <h3 className="font-bold text-lg">Painel de Envios do Dia</h3>
+                        <p className="text-sm text-slate-400">{pendingAlerts.length} Clientes para avisar hoje</p>
                       </div>
                     </div>
                   </div>
@@ -950,7 +967,7 @@ export default function App() {
                   <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">Últimos 6 Meses</p>
                 </div>
                 <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={256}>
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                       <XAxis 

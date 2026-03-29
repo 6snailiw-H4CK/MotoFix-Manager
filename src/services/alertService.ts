@@ -18,6 +18,19 @@ export const AlertService = {
   },
 
   /**
+   * Filtra clientes que precisam de alerta hoje (vencem hoje e estão pendentes).
+   */
+  getDailyPendingAlerts: (clients: Client[]) => {
+    const today = new Date().toISOString().split('T')[0];
+    return clients.filter(client => {
+      const clientDate = client.nextMaintenanceDate.split('T')[0];
+      const isToday = clientDate === today;
+      const isPending = client.notificacaoStatus !== 'concluido';
+      return isToday && isPending;
+    });
+  },
+
+  /**
    * Substitui as variáveis do template pelos dados reais do cliente com validação de data.
    */
   buildReminderMessage: (template: string, client: Client) => {
@@ -101,6 +114,7 @@ export const AlertService = {
     const updateData = {
       lastAlertDate: dateOnly, // Legado
       notificacao_enviada: true,
+      notificacaoStatus: 'concluido',
       automation: {
         ...client.automation, // Preserva campos como nextSendEligibleAt e lastError
         lastAlertDate: dateOnly,

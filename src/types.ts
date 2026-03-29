@@ -11,6 +11,7 @@ export interface Client {
   recurrenceDays: number;
   status: MaintenanceStatus;
   notificacao_enviada?: boolean;
+  notificacaoStatus?: 'pendente' | 'concluido';
   userId: string;
   createdAt: string;
   lastAlertDate?: string; // Campo legado (YYYY-MM-DD)
