@@ -3,86 +3,46 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// MotoFix ManageRr - Application Root
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  auth, 
-  db, 
-  googleProvider, 
-  signInWithPopup, 
-  signOut,
-  collection,
-  query,
-  where,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  setDoc,
-  getDoc
-} from './firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { 
-  format, 
-  addDays, 
-  isBefore, 
-  isAfter, 
-  differenceInDays, 
-  parseISO,
-  startOfDay
-} from 'date-fns';
-import { 
-  Bike, 
-  Users, 
-  History, 
-  Settings as SettingsIcon, 
-  Plus, 
-  LogOut, 
-  AlertTriangle, 
-  CheckCircle, 
-  Trash2, 
-  MessageSquare,
-  Search,
-  LayoutDashboard,
-  Bell,
-  ChevronRight,
-  ArrowLeft,
-  X,
-  Calendar,
-  ShieldCheck,
-  Download,
-  FileText,
-  Droplets,
-  Shield,
-  Lock,
-  UserCheck,
-  UserX,
-  AlertCircle,
-  ExternalLink
+  Plus, Search, History, Bell, Settings as SettingsIcon, LogOut, 
+  ChevronRight, Trash2, CheckCircle, MessageSquare, ArrowLeft, 
+  RefreshCw, Wrench, Filter, UserCheck, UserX, AlertCircle, 
+  ExternalLink, MoreVertical, Edit2, CheckCircle2, TrendingUp,
+  BarChart3, Calendar, ShieldCheck, Download, FileText, X,
+  PieChart, LayoutDashboard, ArrowUpRight, ArrowDownRight,
+  TrendingDown, Bike, Users, AlertTriangle, ChevronLeft,
+  Droplets, Shield, Lock
 } from 'lucide-react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  Cell
+  format, parseISO, addDays, isAfter, isBefore, startOfMonth, 
+  endOfMonth, isWithinInterval, subMonths, startOfDay,
+  differenceInDays
+} from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
+  ResponsiveContainer, Cell, PieChart as RePieChart, Pie 
 } from 'recharts';
-import { Client, MaintenanceRecord, MaintenanceStatus, Settings, Warranty, UserProfile, MessageLog } from './types';
-import { AlertService } from './services/alertService';
-import { jsPDF } from 'jspdf';
+import { 
+  collection, addDoc, query, where, onSnapshot, 
+  updateDoc, doc, deleteDoc, getDocs, getDoc,
+  getDocFromServer, serverTimestamp, setDoc
+} from 'firebase/firestore';
+import { 
+  signInWithPopup, GoogleAuthProvider, onAuthStateChanged, 
+  signOut, User 
+} from 'firebase/auth';
+import { db, auth, googleProvider } from './firebase';
+import { 
+  Client, MaintenanceRecord, MessageLog, Settings, 
+  UserProfile, Warranty, MaintenanceStatus 
+} from './types';
+import { cn } from './lib/utils';
+import { Toaster, toast as sonnerToast } from 'sonner';
+import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-
-// Utility for tailwind classes
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { AlertService } from './services/alertService';
 
 // Toast Component
 const Toast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
@@ -262,6 +222,15 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [messageLogs, setMessageLogs] = useState<MessageLog[]>([]);
+  const [isNewService, setIsNewService] = useState(false);
+  const [historyFilters, setHistoryFilters] = useState({
+    startDate: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+    endDate: format(endOfMonth(new Date()), 'yyyy-MM-dd'),
+    clientName: '',
+    serviceType: 'all',
+    isRecurring: 'all'
+  });
+  const [isSaving, setIsSaving] = useState(false);
 
   const ADMIN_EMAIL = '6snailiw@gmail.com';
 
@@ -481,6 +450,7 @@ export default function App() {
         bikeModel: client.bikeModel,
         date: date,
         oilType: client.oilType,
+        oilPrice: client.oilPrice || 0,
         userId: user.uid,
         notes: "Manutenção periódica realizada."
       });
@@ -498,19 +468,25 @@ export default function App() {
     }
   };
 
-  const handleSaveClient = async (clientData: Partial<Client>) => {
+  const handleSaveClient = async (clientData: Partial<Client> & { serviceType?: string, serviceValue?: number, notes?: string }) => {
     if (!user) return;
+    setIsSaving(true);
 
     const lastDate = clientData.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'");
     const recurrence = clientData.recurrenceDays || 29;
     const nextDate = format(addDays(parseISO(lastDate), recurrence), "yyyy-MM-dd'T'HH:mm:ss'Z'");
     
-    const finalData = {
-      ...clientData,
+    const finalClientData = {
+      name: clientData.name,
+      bikeModel: clientData.bikeModel,
+      contact: clientData.contact,
+      oilType: clientData.oilType || '',
+      oilPrice: clientData.oilPrice || 0,
       userId: user.uid,
       lastMaintenanceDate: lastDate,
       nextMaintenanceDate: nextDate,
       recurrenceDays: recurrence,
+      isRecurringRevenue: clientData.isRecurringRevenue || false,
       status: getStatus(nextDate),
       notificacao_enviada: clientData.notificacao_enviada || false,
       notificacaoStatus: clientData.notificacaoStatus || 'pendente',
@@ -519,20 +495,48 @@ export default function App() {
     };
 
     try {
+      let clientId = editingClient?.id;
       if (editingClient) {
-        await updateDoc(doc(db, 'clients', editingClient.id), finalData);
+        await updateDoc(doc(db, 'clients', editingClient.id), finalClientData);
       } else {
-        await addDoc(collection(db, 'clients'), finalData);
+        const docRef = await addDoc(collection(db, 'clients'), finalClientData);
+        clientId = docRef.id;
       }
+
+      // If it's a new service, record it in history
+      if (isNewService || !editingClient) {
+        await addDoc(collection(db, 'maintenances'), {
+          clientId: clientId,
+          clientName: clientData.name,
+          bikeModel: clientData.bikeModel,
+          date: lastDate,
+          oilType: clientData.oilType || 'N/A',
+          oilPrice: clientData.oilPrice || 0,
+          serviceType: clientData.serviceType || 'Troca de Óleo',
+          serviceValue: clientData.serviceValue || clientData.oilPrice || 0,
+          isRecurringRevenue: clientData.isRecurringRevenue || false,
+          notes: clientData.notes || "Serviço registrado via formulário.",
+          userId: user.uid
+        });
+        toast.success("Serviço registrado com sucesso!");
+      } else {
+        toast.success("Cliente atualizado com sucesso!");
+      }
+
       setEditingClient(null);
+      setIsNewService(false);
       setView('clients');
     } catch (error) {
       handleFirestoreError(error, editingClient ? OperationType.UPDATE : OperationType.CREATE, 'clients');
+      toast.error("Erro ao salvar dados.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleSaveWarranty = async (warrantyData: Partial<Warranty>) => {
     if (!user) return;
+    setIsSaving(true);
 
     const serviceDate = warrantyData.serviceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'");
     const duration = warrantyData.durationMonths || 3;
@@ -555,13 +559,23 @@ export default function App() {
     try {
       if (editingWarranty) {
         await updateDoc(doc(db, 'warranties', editingWarranty.id), finalData);
+        sonnerToast.success("Garantia atualizada com sucesso!");
       } else {
-        await addDoc(collection(db, 'warranties'), finalData);
+        const docRef = await addDoc(collection(db, 'warranties'), finalData);
+        sonnerToast.success("Garantia registrada com sucesso!");
+        
+        // Auto-generate PDF for new warranty
+        setTimeout(() => {
+          generateWarrantyPDF({ ...finalData, id: docRef.id } as Warranty);
+        }, 500);
       }
       setEditingWarranty(null);
       setView('warranties');
     } catch (error) {
       handleFirestoreError(error, editingWarranty ? OperationType.UPDATE : OperationType.CREATE, 'warranties');
+      sonnerToast.error("Erro ao salvar garantia.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -798,6 +812,40 @@ export default function App() {
     c.bikeModel.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const monthlyRevenue = useMemo(() => {
+    const today = new Date();
+    return maintenances.reduce((acc, m) => {
+      const mDate = parseISO(m.date);
+      if (mDate.getMonth() === today.getMonth() && mDate.getFullYear() === today.getFullYear()) {
+        return acc + (m.serviceValue || m.oilPrice || 0);
+      }
+      return acc;
+    }, 0);
+  }, [maintenances]);
+
+  const monthlyRecurringRevenue = useMemo(() => {
+    const today = new Date();
+    return maintenances.reduce((acc, m) => {
+      const mDate = parseISO(m.date);
+      if (m.isRecurringRevenue && mDate.getMonth() === today.getMonth() && mDate.getFullYear() === today.getFullYear()) {
+        return acc + (m.serviceValue || m.oilPrice || 0);
+      }
+      return acc;
+    }, 0);
+  }, [maintenances]);
+
+  const monthlyServicesCount = useMemo(() => {
+    const today = new Date();
+    return maintenances.filter(m => {
+      const mDate = parseISO(m.date);
+      return mDate.getMonth() === today.getMonth() && mDate.getFullYear() === today.getFullYear();
+    }).length;
+  }, [maintenances]);
+
+  const activeWarrantiesCount = useMemo(() => {
+    return warranties.filter(w => isAfter(parseISO(w.expiryDate), new Date())).length;
+  }, [warranties]);
+
   const overdueClients = clients.filter(c => c.status === 'OVERDUE');
   const warningClients = clients.filter(c => c.status === 'WARNING');
   const pendingAlerts = AlertService.getDailyPendingAlerts(clients);
@@ -880,6 +928,30 @@ export default function App() {
         <main className="max-w-5xl mx-auto p-4 space-y-6">
           {view === 'dashboard' && (
             <div className="space-y-8">
+              {/* Resumo Financeiro */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 flex flex-col justify-between">
+                  <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">Receita (Mês)</p>
+                  <p className="text-lg font-bold text-white">R$ {monthlyRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  <TrendingUp className="w-4 h-4 text-emerald-500 mt-1" />
+                </div>
+                <div className="bg-primary/10 p-3 rounded-2xl border border-primary/20 flex flex-col justify-between">
+                  <p className="text-[9px] font-bold text-primary uppercase tracking-widest">Recorrente</p>
+                  <p className="text-lg font-bold text-white">R$ {monthlyRecurringRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  <RefreshCw className="w-4 h-4 text-primary mt-1" />
+                </div>
+                <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20 flex flex-col justify-between">
+                  <p className="text-[9px] font-bold text-blue-500 uppercase tracking-widest">Serviços</p>
+                  <p className="text-lg font-bold text-white">{monthlyServicesCount}</p>
+                  <Wrench className="w-4 h-4 text-blue-500 mt-1" />
+                </div>
+                <div className="bg-purple-500/10 p-3 rounded-2xl border border-purple-500/20 flex flex-col justify-between">
+                  <p className="text-[9px] font-bold text-purple-500 uppercase tracking-widest">Garantias</p>
+                  <p className="text-lg font-bold text-white">{activeWarrantiesCount}</p>
+                  <ShieldCheck className="w-4 h-4 text-purple-500 mt-1" />
+                </div>
+              </div>
+
               {/* Painel de Envios do Dia */}
               {pendingAlerts.length > 0 && (
                 <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 space-y-2">
@@ -996,16 +1068,27 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Quick Action */}
-              <button 
-                onClick={() => { setEditingClient(null); setView('new-client'); }}
-                className="w-full bg-primary py-4 px-6 rounded-2xl flex items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-xl shadow-primary/10 group"
-              >
-                <div className="bg-white/20 p-2 rounded-full group-hover:scale-105 transition-transform">
-                  <Plus className="w-5 h-5" />
-                </div>
-                <span className="text-base font-bold">Nova Troca de Óleo</span>
-              </button>
+              {/* Quick Actions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button 
+                  onClick={() => { setEditingClient(null); setView('new-client'); }}
+                  className="bg-primary py-4 px-6 rounded-2xl flex items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-xl shadow-primary/10 group"
+                >
+                  <div className="bg-white/20 p-2 rounded-full group-hover:scale-105 transition-transform">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <span className="text-base font-bold">Novo Serviço</span>
+                </button>
+                <button 
+                  onClick={() => { setEditingWarranty(null); setView('new-warranty'); }}
+                  className="bg-slate-800 py-4 px-6 rounded-2xl border border-slate-700 flex items-center justify-center gap-3 text-white hover:bg-slate-700 transition-all group"
+                >
+                  <div className="bg-slate-700 p-2 rounded-full group-hover:scale-105 transition-transform">
+                    <ShieldCheck className="w-5 h-5 text-primary" />
+                  </div>
+                  <span className="text-base font-bold">Cadastrar Garantia</span>
+                </button>
+              </div>
 
               {/* Urgent Alerts */}
               {overdueClients.length > 0 && (
@@ -1092,7 +1175,7 @@ export default function App() {
                         )} />
                         <div>
                           <h3 className="font-bold text-sm leading-tight">{client.name}</h3>
-                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{client.bikeModel}</p>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{client.bikeModel} • R$ {client.oilPrice?.toFixed(2)}</p>
                         </div>
                       </div>
                       <div className="flex gap-1">
@@ -1164,24 +1247,125 @@ export default function App() {
 
           {view === 'history' && (
             <div className="space-y-5">
-              <div className="space-y-3">
-                <h2 className="text-lg font-bold">Histórico</h2>
-                <div className="space-y-1.5">
-                  {maintenances.map(record => (
-                    <div key={record.id} className="bg-slate-800/30 p-2.5 rounded-xl border border-slate-700/40 flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="bg-primary/10 p-1.5 rounded-lg">
-                          <History className="w-3.5 h-3.5 text-primary" />
+              <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
+                <h2 className="text-lg font-bold">Histórico de Serviços</h2>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setView('report')}
+                    className="bg-primary/10 text-primary px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-primary/20 transition-all"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    Relatório Mensal
+                  </button>
+                </div>
+              </div>
+
+              {/* Filtros */}
+              <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-700/50 space-y-3">
+                <div className="flex items-center gap-2 text-primary mb-1">
+                  <Filter className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Filtros Avançados</span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-bold text-slate-500 uppercase px-1">Início</label>
+                    <input 
+                      type="date" 
+                      value={historyFilters.startDate}
+                      onChange={(e) => setHistoryFilters({ ...historyFilters, startDate: e.target.value })}
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-bold text-slate-500 uppercase px-1">Fim</label>
+                    <input 
+                      type="date" 
+                      value={historyFilters.endDate}
+                      onChange={(e) => setHistoryFilters({ ...historyFilters, endDate: e.target.value })}
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-bold text-slate-500 uppercase px-1">Cliente</label>
+                    <input 
+                      type="text" 
+                      placeholder="Nome..."
+                      value={historyFilters.clientName}
+                      onChange={(e) => setHistoryFilters({ ...historyFilters, clientName: e.target.value })}
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-bold text-slate-500 uppercase px-1">Serviço</label>
+                    <select 
+                      value={historyFilters.serviceType}
+                      onChange={(e) => setHistoryFilters({ ...historyFilters, serviceType: e.target.value })}
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none"
+                    >
+                      <option value="all">Todos</option>
+                      <option value="Troca de Óleo">Troca de Óleo</option>
+                      <option value="Revisão">Revisão</option>
+                      <option value="Pneus">Pneus</option>
+                      <option value="Freios">Freios</option>
+                      <option value="Outros">Outros</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-bold text-slate-500 uppercase px-1">Recorrência</label>
+                    <select 
+                      value={historyFilters.isRecurring}
+                      onChange={(e) => setHistoryFilters({ ...historyFilters, isRecurring: e.target.value })}
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none"
+                    >
+                      <option value="all">Todos</option>
+                      <option value="yes">Recorrente</option>
+                      <option value="no">Eventual</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {maintenances
+                  .filter(record => {
+                    const recordDate = parseISO(record.date);
+                    const start = parseISO(historyFilters.startDate);
+                    const end = parseISO(historyFilters.endDate);
+                    const matchesDate = isWithinInterval(recordDate, { start, end });
+                    const matchesClient = record.clientName.toLowerCase().includes(historyFilters.clientName.toLowerCase());
+                    const matchesType = historyFilters.serviceType === 'all' || record.serviceType === historyFilters.serviceType;
+                    const matchesRecurring = historyFilters.isRecurring === 'all' || 
+                      (historyFilters.isRecurring === 'yes' && record.isRecurringRevenue) ||
+                      (historyFilters.isRecurring === 'no' && !record.isRecurringRevenue);
+                    
+                    return matchesDate && matchesClient && matchesType && matchesRecurring;
+                  })
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map(record => (
+                    <div key={record.id} className="bg-slate-800/30 p-3 rounded-xl border border-slate-700/40 flex items-center justify-between group hover:bg-slate-800/50 transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "p-2 rounded-lg",
+                          record.isRecurringRevenue ? "bg-primary/10 text-primary" : "bg-slate-700/50 text-slate-400"
+                        )}>
+                          {record.isRecurringRevenue ? <RefreshCw className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
                         </div>
                         <div>
-                          <p className="font-bold text-xs leading-tight">{record.clientName}</p>
-                          <p className="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">{record.bikeModel} • {record.oilType}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-sm leading-tight">{record.clientName}</p>
+                            {record.isRecurringRevenue && (
+                              <span className="text-[7px] bg-primary/20 text-primary px-1 rounded uppercase font-bold">Recorrente</span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">
+                            {record.bikeModel} • {record.serviceType} • R$ {record.serviceValue?.toFixed(2)}
+                          </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         <div className="text-right">
-                          <p className="font-bold text-[10px] text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
-                          <p className="text-[7px] text-slate-500 uppercase font-bold tracking-widest">Data</p>
+                          <p className="font-bold text-xs text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
+                          <p className="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Data</p>
                         </div>
                         <button 
                           onClick={() => {
@@ -1192,21 +1376,20 @@ export default function App() {
                             }
                           }}
                           className={cn(
-                            "p-1.5 rounded-lg transition-colors ml-1",
+                            "p-2 rounded-lg transition-colors opacity-0 group-hover:opacity-100",
                             deleteConfirm?.id === record.id 
-                              ? "bg-red-500 text-white animate-pulse" 
+                              ? "bg-red-500 text-white animate-pulse opacity-100" 
                               : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
                           )}
                         >
-                          {deleteConfirm?.id === record.id ? <CheckCircle className="w-3 h-3" /> : <Trash2 className="w-3 h-3" />}
+                          {deleteConfirm?.id === record.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
                         </button>
                       </div>
                     </div>
                   ))}
-                </div>
               </div>
 
-              <div className="space-y-3 pt-5 border-t border-slate-800/50">
+              <div className="space-y-3 pt-8 border-t border-slate-800/50">
                 <h2 className="text-lg font-bold flex items-center gap-2">
                   <Bell className="w-4 h-4 text-primary" />
                   Logs de Alertas
@@ -1258,6 +1441,203 @@ export default function App() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {view === 'report' && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setView('history')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-xl font-bold">Relatório Mensal</h2>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Receita Total (Mês)</p>
+                  <p className="text-2xl font-bold text-white">R$ {monthlyRevenue.toFixed(2)}</p>
+                  <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-500 font-bold">
+                    <TrendingUp className="w-3 h-3" />
+                    <span>+12% vs mês anterior</span>
+                  </div>
+                </div>
+                <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Recorrência</p>
+                  <p className="text-2xl font-bold text-primary">R$ {monthlyRecurringRevenue.toFixed(2)}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">{(monthlyRecurringRevenue / (monthlyRevenue || 1) * 100).toFixed(1)}% da receita total</p>
+                </div>
+                <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Serviços Realizados</p>
+                  <p className="text-2xl font-bold text-white">{monthlyServicesCount}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">Média de {(monthlyServicesCount / 30).toFixed(1)} por dia</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/50">
+                <h3 className="text-sm font-bold mb-6 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-primary" />
+                  Evolução de Receita (6 Meses)
+                </h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={Array.from({ length: 6 }).map((_, i) => {
+                      const date = subMonths(new Date(), 5 - i);
+                      const monthStr = format(date, 'MMM', { locale: ptBR });
+                      const monthYear = format(date, 'yyyy-MM');
+                      
+                      const monthServices = maintenances.filter(m => m.date.startsWith(monthYear));
+                      const total = monthServices.reduce((acc, m) => acc + (m.serviceValue || 0), 0);
+                      const recurring = monthServices.filter(m => m.isRecurringRevenue).reduce((acc, m) => acc + (m.serviceValue || 0), 0);
+                      
+                      return {
+                        name: monthStr,
+                        total: total,
+                        recorrente: recurring
+                      };
+                    })}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                      <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                      <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `R$${value}`} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', fontSize: '10px' }}
+                        itemStyle={{ fontWeight: 'bold' }}
+                      />
+                      <Bar dataKey="total" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Total" />
+                      <Bar dataKey="recorrente" fill="#10b981" radius={[4, 4, 0, 0]} name="Recorrente" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/50">
+                  <h3 className="text-sm font-bold mb-4">Serviços por Categoria</h3>
+                  <div className="space-y-3">
+                    {['Troca de Óleo', 'Revisão', 'Pneus', 'Freios', 'Outros'].map(type => {
+                      const count = maintenances.filter(m => m.serviceType === type && m.date.startsWith(format(new Date(), 'yyyy-MM'))).length;
+                      const percentage = (count / (monthlyServicesCount || 1)) * 100;
+                      return (
+                        <div key={type} className="space-y-1">
+                          <div className="flex justify-between text-[10px] font-bold">
+                            <span className="text-slate-400">{type}</span>
+                            <span>{count} ({percentage.toFixed(0)}%)</span>
+                          </div>
+                          <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-primary h-full rounded-full" style={{ width: `${percentage}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/50">
+                  <h3 className="text-sm font-bold mb-4">Top Clientes (Mês)</h3>
+                  <div className="space-y-3">
+                    {Object.entries(
+                      maintenances
+                        .filter(m => m.date.startsWith(format(new Date(), 'yyyy-MM')))
+                        .reduce((acc, m) => {
+                          acc[m.clientName] = (acc[m.clientName] || 0) + (m.serviceValue || 0);
+                          return acc;
+                        }, {} as Record<string, number>)
+                    )
+                    .sort((a, b) => (b[1] as number) - (a[1] as number))
+                    .slice(0, 5)
+                    .map(([name, value]) => (
+                      <div key={name} className="flex justify-between items-center p-2 rounded-lg bg-slate-900/50 border border-slate-700/30">
+                        <span className="text-xs font-bold text-slate-300">{name}</span>
+                        <span className="text-xs font-bold text-emerald-500">R$ {(value as number).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {view === 'new-warranty' && (
+            <div className="max-w-xl mx-auto space-y-4">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setView('dashboard')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-xl font-bold">Registrar Garantia</h2>
+              </div>
+
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  handleSaveWarranty({
+                    clientName: formData.get('clientName') as string,
+                    clientPhone: formData.get('clientPhone') as string,
+                    serviceType: formData.get('serviceType') as string,
+                    serviceDescription: formData.get('serviceDescription') as string,
+                    serviceValue: parseFloat(formData.get('serviceValue') as string) || 0,
+                    serviceDate: formData.get('serviceDate') as string,
+                    durationMonths: parseInt(formData.get('durationMonths') as string) || 3
+                  });
+                }}
+                className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-5"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente</label>
+                    <input name="clientName" required placeholder="Ex: João Silva" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
+                    <input name="clientPhone" required placeholder="Ex: 5511999999999" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Serviço</label>
+                    <select name="serviceType" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
+                      {settings?.warrantyCategories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Valor do Serviço (R$)</label>
+                    <input name="serviceValue" type="number" step="0.01" required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data do Serviço</label>
+                    <input name="serviceDate" type="date" defaultValue={format(new Date(), 'yyyy-MM-dd')} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Duração (Meses)</label>
+                    <input name="durationMonths" type="number" defaultValue={3} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Descrição do Serviço</label>
+                  <textarea name="serviceDescription" placeholder="O que foi feito..." className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none h-20" />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    type="submit" 
+                    disabled={isSaving}
+                    className="flex-1 bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all text-sm shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      'Gerar Certificado'
+                    )}
+                  </button>
+                  <button type="button" onClick={() => setView('dashboard')} className="px-6 bg-slate-700/50 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all text-sm">
+                    Cancelar
+                  </button>
+                </div>
+              </form>
             </div>
           )}
 
@@ -1696,7 +2076,7 @@ export default function App() {
                 <button onClick={() => setView('clients')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-                <h2 className="text-xl font-bold">{editingClient ? 'Editar Cliente' : 'Novo Registro'}</h2>
+                <h2 className="text-xl font-bold">{editingClient ? 'Editar Cliente' : 'Novo Serviço'}</h2>
               </div>
 
               <form 
@@ -1708,8 +2088,13 @@ export default function App() {
                     bikeModel: formData.get('bikeModel') as string,
                     contact: formData.get('contact') as string,
                     oilType: formData.get('oilType') as string,
-                    recurrenceDays: parseInt(formData.get('recurrenceDays') as string),
-                    lastMaintenanceDate: formData.get('lastMaintenanceDate') ? `${formData.get('lastMaintenanceDate')}T12:00:00Z` : undefined
+                    oilPrice: parseFloat(formData.get('oilPrice') as string) || 0,
+                    serviceType: formData.get('serviceType') as string,
+                    serviceValue: parseFloat(formData.get('serviceValue') as string) || 0,
+                    isRecurringRevenue: formData.get('isRecurringRevenue') === 'on',
+                    recurrenceDays: parseInt(formData.get('recurrenceDays') as string) || 29,
+                    lastMaintenanceDate: formData.get('lastMaintenanceDate') ? `${formData.get('lastMaintenanceDate')}T12:00:00Z` : undefined,
+                    notes: formData.get('notes') as string
                   });
                 }}
                 className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-5"
@@ -1728,22 +2113,21 @@ export default function App() {
                     <input name="bikeModel" defaultValue={editingClient?.bikeModel} required placeholder="Ex: Honda CG 160" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
                   <div className="space-y-1.5">
-                    <div className="flex justify-between items-center px-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tipo de Óleo</label>
-                      <button type="button" onClick={() => setView('settings')} className="text-[9px] text-primary hover:underline font-bold uppercase tracking-tighter">Gerenciar Lista</button>
-                    </div>
-                    <select name="oilType" defaultValue={editingClient?.oilType} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
-                      <option value="">Selecione o óleo</option>
-                      {editingClient?.oilType && !settings?.oilTypes?.includes(editingClient.oilType) && (
-                        <option value={editingClient.oilType}>{editingClient.oilType}</option>
-                      )}
-                      {settings?.oilTypes?.map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Serviço</label>
+                    <select name="serviceType" defaultValue={editingClient ? 'Troca de Óleo' : 'Troca de Óleo'} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
+                      <option value="Troca de Óleo">Troca de Óleo</option>
+                      <option value="Revisão">Revisão</option>
+                      <option value="Pneus">Pneus</option>
+                      <option value="Freios">Freios</option>
+                      <option value="Outros">Outros</option>
                     </select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data da Manutenção</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Valor do Serviço (R$)</label>
+                    <input name="serviceValue" type="number" step="0.01" defaultValue={editingClient?.oilPrice || 0} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data do Serviço</label>
                     <input 
                       name="lastMaintenanceDate" 
                       type="date" 
@@ -1756,11 +2140,31 @@ export default function App() {
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Recorrência (Dias)</label>
                     <input name="recurrenceDays" type="number" defaultValue={editingClient?.recurrenceDays || 29} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <input name="isRecurringRevenue" type="checkbox" defaultChecked={editingClient?.isRecurringRevenue ?? true} className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-primary focus:ring-primary" />
+                    <label className="text-xs font-bold text-slate-400">Receita Recorrente</label>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observações</label>
+                  <textarea name="notes" placeholder="Detalhes adicionais do serviço..." className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none h-20" />
                 </div>
 
                 <div className="flex gap-3 pt-2">
-                  <button type="submit" className="flex-1 bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all text-sm shadow-lg shadow-primary/20">
-                    {editingClient ? 'Salvar' : 'Cadastrar'}
+                  <button 
+                    type="submit" 
+                    disabled={isSaving}
+                    className="flex-1 bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all text-sm shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      editingClient ? 'Salvar Alterações' : 'Registrar Serviço'
+                    )}
                   </button>
                   <button type="button" onClick={() => setView('clients')} className="px-6 bg-slate-700/50 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all text-sm">
                     Cancelar

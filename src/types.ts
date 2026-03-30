@@ -5,11 +5,13 @@ export interface Client {
   name: string;
   bikeModel: string;
   oilType: string;
+  oilPrice: number;
   contact: string; // Telefone do cliente
   lastMaintenanceDate: string;
   nextMaintenanceDate: string;
   recurrenceDays: number;
   status: MaintenanceStatus;
+  isRecurringRevenue?: boolean;
   notificacao_enviada?: boolean;
   notificacaoStatus?: 'pendente' | 'concluido';
   userId: string;
@@ -49,6 +51,10 @@ export interface MaintenanceRecord {
   bikeModel: string;
   date: string;
   oilType: string;
+  oilPrice?: number; // Valor legado para troca de óleo
+  serviceType: string; // Tipo de serviço (ex: Troca de Óleo, Revisão)
+  serviceValue: number; // Valor total do serviço
+  isRecurringRevenue: boolean; // Identifica se é receita recorrente
   notes: string;
   userId: string;
 }

@@ -1,8 +1,9 @@
 import "dotenv/config";
 import express from "express";
-import { createServer as createViteServer } from "vite";
-import path from "path";
-import { fileURLToPath } from "url";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import automationRoutes from "./src/server/routes/automationRoutes";
+import { Scheduler } from "./src/server/scheduler";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,14 +14,26 @@ async function startServer() {
 
   // Middleware para JSON
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
-  // Rota de saúde
+  // Rota de saúde básica
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
 
+  // Registro das Rotas de Automação (Módulo Isolado)
+  app.use("/api/automation", automationRoutes);
+
+  // Inicializa o Scheduler de Lembretes (Módulo Isolado)
+  try {
+    Scheduler.init();
+  } catch (error) {
+    console.error('❌ Erro ao inicializar o Scheduler:', error);
+  }
+
   // Configuração do Vite para desenvolvimento ou produção
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -38,5 +51,13 @@ async function startServer() {
     console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
   });
 }
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 startServer();
